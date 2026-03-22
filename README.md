@@ -141,7 +141,7 @@ Important context is saved in versioned markdown under `docs/` so humans and fut
 - how this experience is being recorded so future clones do not depend on tribal knowledge
 
 For the human-facing explanation of how OpenClaw saves context in this repo, see:
-- `docs/context_and_recordkeeping.md`
+- [`docs/context_and_recordkeeping.md`](docs/context_and_recordkeeping.md)
 
 ---
 

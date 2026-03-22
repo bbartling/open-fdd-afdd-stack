@@ -46,6 +46,18 @@ Humans should start here:
 - `docs/testing_plan.md`
 - `docs/context_and_recordkeeping.md`
 
+## Dashboard operation note
+
+The local dashboard in `dashboard/` is intended to be **run by an agent on request**.
+
+The expected human workflow is simple:
+- ask the agent to start the dashboard
+- ask the agent to restart it if the local server dies
+- ask the agent to evolve the dashboard when new panes or metrics are needed
+
+The human is not expected to manually maintain the dashboard serving process.
+The code should remain in the repo, and the agent should handle the lightweight local serving step when asked.
+
 ## Why this exists
 
 If this repo is cloned elsewhere, or if different agents/humans work on it later, the important engineering context should still be easy to find.

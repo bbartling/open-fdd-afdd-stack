@@ -144,6 +144,7 @@ Important context is saved in versioned markdown under `docs/` so humans and fut
 - how BACnet graph context is interpreted
 - how BACnet devices, point addressing, YAML fault rules, and rolling windows should be verified together
 - how PR review and overnight log review should work
+- how the local dashboard is meant to be run by an agent on request
 - how this experience is being recorded so future clones do not depend on tribal knowledge
 
 For the human-facing explanation of how OpenClaw saves context in this repo, see:

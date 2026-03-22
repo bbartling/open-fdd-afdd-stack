@@ -218,6 +218,8 @@ Current emphasis:
 - how overnight testing should be reviewed
 - how to clone or port the setup elsewhere
 - how deterministic fake BACnet faults support high-confidence FDD verification
+- how BACnet graph context should be preserved for future clones and researchers
+- how AI PR review and overnight log review should work without relying on paid tools
 
 ### Important next documentation targets
 
@@ -225,6 +227,12 @@ Current emphasis:
 - active YAML rule inventory and rolling-window expectations
 - evidence formats for pass / fail / inconclusive outcomes
 - docker-log correlation once container-log access is integrated
+- future optimization context derived from equipment type, BACnet addressing, and rule applicability
+
+See also:
+- `docs/ai_pr_review_playbook.md`
+- `docs/bacnet_graph_context.md`
+- `docs/testing_plan.md`
 
 ---
 

@@ -4,6 +4,19 @@ This is the evolving engineering plan for Open-FDD automated testing.
 
 ## Near-term priorities
 
+### 0. Continuous PR and CI review
+
+The OpenClaw workflow should continuously watch active PRs in the same spirit as CodeRabbit:
+
+- detect new commits quickly
+- re-check CI and review state
+- inspect changed files directly
+- run targeted local checks where possible
+- write down risks, limitations, and next tests instead of relying on chat memory
+
+See `docs/ai_pr_review_playbook.md`.
+
+
 ### 1. Restore authenticated backend graph checks
 
 Problem:

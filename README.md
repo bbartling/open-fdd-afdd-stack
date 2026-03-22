@@ -135,6 +135,7 @@ Important context is saved in versioned markdown under `docs/` so humans and fut
 - [`docs/bacnet_graph_context.md`](docs/bacnet_graph_context.md)
 - [`docs/ai_pr_review_playbook.md`](docs/ai_pr_review_playbook.md)
 - [`docs/testing_plan.md`](docs/testing_plan.md)
+- [`docs/big_picture_gaps.md`](docs/big_picture_gaps.md)
 - [`docs/context_and_recordkeeping.md`](docs/context_and_recordkeeping.md)
 
 ### What this documentation is meant to preserve
@@ -165,3 +166,4 @@ For the human-facing explanation of how OpenClaw saves context in this repo, see
 ## License
 
 This project is licensed under the **MIT License**. See [LICENSE](LICENSE).
+CENSE).

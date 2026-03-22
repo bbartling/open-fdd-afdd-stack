@@ -56,6 +56,15 @@ The repo should keep visible documentation for:
 - BACnet graph context
 - portability assumptions
 - future optimization intent
+- documentation guidance that works for both humans and AI agents
+
+### 5. Add nightly docs and link review
+
+The overnight workflow should also:
+- validate important README and docs links
+- identify missing docs pages or thin areas
+- suggest documentation improvements that make the system easier for both humans and AI agents to understand
+- record those suggestions in durable repo docs or review notes
 
 ## Future role in live HVAC systems
 

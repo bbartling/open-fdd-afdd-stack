@@ -12,8 +12,10 @@ Every morning review should answer these questions explicitly:
 4. Did scraped telemetry arrive in Open-FDD for the expected points?
 5. Did expected fake-device fault windows produce corresponding Open-FDD fault results?
 6. Did YAML rule hot reload still work?
-7. Which failures are likely real product bugs?
-8. Which failures are more likely auth, environment, timing, or operator setup drift?
+7. Are the key docs pages and README links still valid?
+8. What documentation gaps or unclear areas should be improved for both humans and AI agents?
+9. Which failures are likely real product bugs?
+10. Which failures are more likely auth, environment, timing, or operator setup drift?
 
 ## Outcome categories
 

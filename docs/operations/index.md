@@ -10,3 +10,4 @@ These pages describe recurring workflows, review routines, and integrity expecta
 - [Overnight review](overnight_review)
 - [Testing plan](testing_plan)
 - [Open-FDD integrity sweep](openfdd_integrity_sweep)
+- [OpenClaw context bootstrap for Open-FDD work](openclaw_context_bootstrap)

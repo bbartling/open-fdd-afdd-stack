@@ -64,11 +64,12 @@ That means the AI reviewer should specifically verify:
 
 ## Nightly monitoring extension (6 PM to 6 AM)
 
-During the overnight dev-testing window, the reviewer should also behave like a lightweight operations analyst.
+During the overnight dev-testing window, the reviewer should also behave like a lightweight operations analyst and context archivist.
 
 ### Nightly checks to add
 
 - monitor PR activity and CI changes
+- back up durable OpenClaw/Open-FDD operating context into repo docs when workflow logic or environment lessons materially improve
 - monitor container logs for:
   - `openfdd_api`
   - `openfdd_frontend`
@@ -83,6 +84,7 @@ During the overnight dev-testing window, the reviewer should also behave like a 
   - setup drift
   - missing auth/config
   - testbench limitations
+- update repo docs when the overnight run learns a durable lesson that future clones/agents should inherit
 
 ## How to knock off CodeRabbit on a budget
 

@@ -13,3 +13,4 @@ These pages describe recurring workflows, review routines, and integrity expecta
 - [OpenClaw context bootstrap for Open-FDD work](openclaw_context_bootstrap)
 - [Virtual operator framework](operator_framework)
 - [Continuous context backup loop](continuous_context_backup)
+- [Usage budget and throttling](usage_budget_and_throttling)

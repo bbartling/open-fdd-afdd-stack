@@ -61,3 +61,12 @@ Examples:
 - a blanket 401 from protected endpoints may simply indicate auth drift
 - a missing suite log is an automation reliability issue, even if the product is fine
 - a broken docs link on `master` matters immediately; a fix that only exists on the active dev branch should be called out as branch-specific
+
+## Usage-budget behavior
+
+If model/API budget is under pressure during overnight review:
+- preserve the highest-signal evidence gathering first
+- avoid repeating long narrative summaries for unchanged failures
+- prefer backend/API validation before browser-heavy reruns
+- avoid rerunning the full suite multiple times for the same known blocker
+- document the throttle decision clearly in repo notes so future clones inherit the behavior

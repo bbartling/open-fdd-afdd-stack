@@ -154,6 +154,7 @@ Rule:
 - the overnight workflow is already doing broader PR/log/docs/BACnet/FDD review, so duplicate low-signal chatter is not useful
 - outside the overnight workflow, the integrity sweep is the lightweight daytime safety/integrity pulse
 - when the sweep logic or operator heuristics improve in a durable way, record that in repo docs and push it so future clones inherit the improvement
+- when model/API budget pressure is high, throttle the sweep to auth + graph + a minimal model-derived BACnet sanity check instead of spending budget on repeated narrative or broad browser-driven checks
 
 ### Current mode
 Today this is primarily a fake-data / test-bench environment.

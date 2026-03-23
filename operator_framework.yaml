@@ -34,6 +34,32 @@ cadence:
     During the overnight workflow, suppress duplicate low-signal chatter and prefer
     richer review artifacts plus durable context updates when the operating process improves.
 
+usage_budget:
+  signals:
+    - session/model status shows budget pressure
+    - provider dashboard indicates weekly/hourly pressure
+    - repeated retries would spend budget on the same known failure
+  throttle_levels:
+    normal:
+      behavior:
+        - run intended sweep/review cadence
+        - allow browser parity and richer narrative when valuable
+    conserve:
+      behavior:
+        - keep sweep output short
+        - batch docs updates
+        - prefer focused reruns over repeated full-suite reruns
+    high_conservation:
+      behavior:
+        - reduce checks to auth + graph + minimal model-derived BACnet validation
+        - prefer backend/API checks before browser-heavy parity
+        - suppress duplicate low-signal chat output
+    survival:
+      behavior:
+        - run only high-signal checks
+        - skip optional weather/history enrichment
+        - notify the human that coverage is reduced by budget pressure
+
 mode_detection:
   required_outputs:
     - environment_mode

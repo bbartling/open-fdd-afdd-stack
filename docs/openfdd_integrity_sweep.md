@@ -29,6 +29,13 @@ So the sweep should first resolve the active endpoints from the current repo/env
 
 ## Minimum integrity checks
 
+Before live point reads, derive the representative checks from the data model itself. For example:
+- use SPARQL to identify current sites
+- use SPARQL to identify BACnet devices currently represented in the graph
+- use SPARQL to identify a small representative set of modeled/polling points
+- choose BACnet-side reads based on those modeled points rather than on arbitrary hard-coded point names
+
+
 ### 1) Backend auth is available in the launch context
 - verify the shell/Python context actually has the backend auth needed for direct Open-FDD API calls
 - if direct authenticated backend checks cannot run, classify that as auth/config drift immediately
@@ -115,5 +122,8 @@ It exists to answer:
 - can we still query the graph?
 - can we still read a BACnet-side point?
 - are we obviously drifting before the overnight run even starts?
+
+That makes the overnight run more trustworthy and less likely to waste a whole night on a broken launch context.
+
 
 That makes the overnight run more trustworthy and less likely to waste a whole night on a broken launch context.

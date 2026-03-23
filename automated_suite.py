@@ -34,6 +34,7 @@ def main() -> int:
     parser.add_argument("--skip", choices=["e2e", "sparql", "long-run", "hot-reload"], action="append", default=[], help="Skip one or more steps")
     parser.add_argument("--long-run-check-faults", action="store_true", help="Enable fault schedule verification in the long-run test")
     parser.add_argument("--long-run-config-via-frontend", action="store_true", help="Have the long-run test adjust config via the frontend instead of API")
+    parser.add_argument("--long-run-short-day", action="store_true", help="Run the BACnet scrape test in a daytime short profile (<2h) instead of the full ~3h once pass")
     parser.add_argument("--hot-reload-frontend-check", action="store_true", help="Run the optional /faults UI smoke check in the hot-reload script")
     args = parser.parse_args()
 
@@ -73,6 +74,8 @@ def main() -> int:
             cmd.append("--check-faults")
         if args.long_run_config_via_frontend:
             cmd.append("--config-via-frontend")
+        if args.long_run_short_day:
+            cmd.append("--short-day")
         run_step(cmd, "Long-run BACnet scrape + fault schedule")
 
     if "hot-reload" not in args.skip:

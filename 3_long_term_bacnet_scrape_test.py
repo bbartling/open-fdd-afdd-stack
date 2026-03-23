@@ -22,7 +22,8 @@ Usage
   python 3_long_term_bacnet_scrape_test.py --once --config-via-frontend --check-faults-via-frontend --frontend-url http://192.168.204.16 --headed
 
   python 3_long_term_bacnet_scrape_test.py --once --config-via-frontend --check-faults-via-frontend --frontend-url http://192.168.204.16 --api-url http://192.168.204.16:8000 --headed
-  
+
+  python 3_long_term_bacnet_scrape_test.py --short-day --check-faults --frontend-url http://192.168.204.16 --api-url http://192.168.204.16:8000
 
   python 3_long_term_bacnet_scrape_test.py --config-via-frontend --check-faults-via-frontend --frontend-url http://192.168.204.16 --api-url http://192.168.204.16:8000 --headed
 
@@ -150,6 +151,12 @@ PHASES = [
     (1, 60 * 60, 55, 65),   # Expect ~60 scrapes
     (5, 60 * 60, 10, 15),   # Expect ~12 scrapes
     (10, 60 * 60, 4, 8),    # Expect ~6 scrapes
+]
+
+SHORT_DAY_PHASES = [
+    (1, 20 * 60, 18, 24),   # Expect ~20 scrapes
+    (5, 30 * 60, 5, 7),     # Expect ~6 scrapes
+    (10, 30 * 60, 2, 4),    # Expect ~3 scrapes
 ]
 
 
@@ -737,6 +744,7 @@ def _parse_frontend_args():
 def main() -> int:
     global _API_BASE_OVERRIDE, PRIMARY_SITE_ID, PRIMARY_SITE_NAME, SITE_QUERY_VALUE
     once = "--once" in sys.argv or os.environ.get("OFDD_INTERVAL_TEST_ONCE") == "1"
+    short_day = "--short-day" in sys.argv or os.environ.get("OFDD_INTERVAL_TEST_SHORT_DAY") == "1"
     check_faults = "--check-faults" in sys.argv or os.environ.get("OFDD_CHECK_FAULTS") == "1"
     config_via_frontend = "--config-via-frontend" in sys.argv or os.environ.get("OFDD_CONFIG_VIA_FRONTEND") == "1"
     check_faults_via_frontend = "--check-faults-via-frontend" in sys.argv or os.environ.get("OFDD_CHECK_FAULTS_VIA_FRONTEND") == "1"
@@ -827,6 +835,11 @@ def main() -> int:
         SITE_QUERY_VALUE = site_id
         print(f"  Using site for CSV/fault checks: {site_name} ({site_id})")
 
+        selected_phases = SHORT_DAY_PHASES if short_day else PHASES
+        if short_day:
+            total_minutes = sum(duration for _, duration, _, _ in selected_phases) // 60
+            print(f"Short daytime profile enabled (--short-day): {total_minutes} total minutes across {len(selected_phases)} phases.")
+
         cycle = 0
         while True:
             cycle += 1
@@ -834,7 +847,7 @@ def main() -> int:
             print(f"=== Cycle {cycle} ===")
             print(f"=======================\n")
 
-            for interval_min, duration_sec, min_ts, max_ts in PHASES:
+            for interval_min, duration_sec, min_ts, max_ts in selected_phases:
                 print(f"--- Phase: {interval_min} min interval ---")
 
                 # 1. Update Config (API or frontend)

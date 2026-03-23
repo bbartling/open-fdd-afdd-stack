@@ -41,6 +41,11 @@ Before live point reads, derive the representative checks from the data model it
 - use SPARQL to identify a small representative set of modeled/polling points
 - choose BACnet-side reads based on those modeled points rather than on arbitrary hard-coded point names
 
+This should feel like:
+- a strong human building operator using the Open-FDD knowledge graph as the window into the HVAC system
+- expert-level building commissioning / mechanical engineering judgment for what should broadly make sense
+- expert-level web application testing / bug-hunting skepticism for the Open-FDD product and its UI/API behavior
+
 
 ### 1) Backend auth is available in the launch context
 - verify the shell/Python context actually has the backend auth needed for direct Open-FDD API calls

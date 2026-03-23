@@ -5,3 +5,4 @@ __pycache__/
 *.bak
 dashboard/local-progress.json
 docs/_build/
+pdf/artifact-download/

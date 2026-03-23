@@ -8,6 +8,8 @@ nav_order: 1
 
 The overnight review is the daily discipline that turns unattended testing into useful engineering evidence.
 
+It should also act as the continuous improvement loop for the virtual operator framework: when the process gets smarter, sanitize that lesson into repo docs/policy files and push it so future clones inherit it.
+
 ## Morning questions
 
 Every morning review should answer these questions explicitly:

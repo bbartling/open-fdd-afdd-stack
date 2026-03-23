@@ -13,6 +13,7 @@ It is meant to help both humans and AI agents:
 - review overnight evidence
 - preserve durable engineering context
 - carry lessons forward across future jobs and future buildings
+- evolve a portable virtual operator framework without hard-coding one site into repo docs
 
 ## Core validation layers
 
@@ -65,6 +66,8 @@ The docs are now organized in a structure closer to the main Open-FDD docs so th
 - [`docs/operations/overnight_review.md`](docs/operations/overnight_review.md)
 - [`docs/operations/testing_plan.md`](docs/operations/testing_plan.md)
 - [`docs/operations/openfdd_integrity_sweep.md`](docs/operations/openfdd_integrity_sweep.md)
+- [`docs/operations/operator_framework.md`](docs/operations/operator_framework.md)
+- [`docs/operations/continuous_context_backup.md`](docs/operations/continuous_context_backup.md)
 - [`docs/appendix/ai_pr_review_playbook.md`](docs/appendix/ai_pr_review_playbook.md)
 
 ## PDF build

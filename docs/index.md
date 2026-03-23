@@ -26,5 +26,6 @@ Use these docs to understand:
 - how overnight review works
 - how BACnet graph and fault verification should be interpreted
 - how the integrity sweep should work
+- how the virtual operator framework should think
 - how to clone, port, and reuse this repo in future jobs
 - how to preserve context so future jobs do not depend on chat history

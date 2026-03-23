@@ -60,7 +60,7 @@ See `docs/bacnet_fault_verification.md` and `reports/overnight-bacnet-verificati
 
 ### 4. Preserve reusable context for future clones
 
-The repo should keep visible documentation for:
+The repo should keep visible documentation and machine-readable operator policy for:
 - the operational states
 - overnight review discipline
 - BACnet graph context

@@ -104,16 +104,29 @@ It returns:
 
 That is a strong starting point for proving that BACnet addressing is present in the graph and matched to polling points.
 
-## Current live-environment status (2026-03-22)
+## Current live-environment status
+
+### 2026-03-22 snapshot
 
 Attempted live Open-FDD API query:
 - `POST http://192.168.204.16:8000/data-model/sparql`
 - Result: `401 Missing or invalid Authorization header`
 
-Meaning:
+Meaning at that time:
 - the live query path exists
-- this machine currently does not have the correct `OFDD_API_KEY` available for backend SPARQL access
-- the right next step is to load the same auth secret used by the Open-FDD stack so graph validation can run non-interactively
+- this machine did not yet have the correct `OFDD_API_KEY` available for backend SPARQL access
+- the right next step was to load the same auth secret used by the Open-FDD stack so graph validation could run non-interactively
+
+### 2026-03-24 snapshot
+
+Authenticated backend access is now working again from the bench context.
+
+Observed behavior worth preserving for future clones:
+- `GET /data-model/check` succeeded and reported live graph metadata
+- `POST /data-model/sparql` succeeded with the same bench auth context
+- the current backend response shape was the simplified form `{"bindings": [...]}` rather than strict SPARQL JSON `{"results": {"bindings": [...]}}`
+
+That response-shape detail matters because a test script can falsely conclude that the graph is empty if it only looks for `results.bindings`.
 
 ## BACnet scraper / DIY gateway context
 

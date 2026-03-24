@@ -36,17 +36,25 @@ Example:
 - `python automated_suite.py --api-url http://HOST:8000 --frontend-url http://HOST --long-run-check-faults --long-run-short-day`
 - or `run_daytime_short_suite.cmd` on the current bench
 
-### 1. Restore authenticated backend graph checks
+### 1. Keep authenticated backend graph checks healthy
 
-Problem:
-- `POST /data-model/sparql` currently returns `401 Missing or invalid Authorization header` from this test bench.
+Latest status:
+- direct authenticated backend access has been restored on the current bench context
+- `GET /data-model/check` and authenticated `POST /data-model/sparql` are now working again
+
+Ongoing risk:
+- auth still depends on the real launch context, not just a remembered file location
+- future overnight runs can regress back into auth/config drift if the automated-testing shell or Python context loses `OFDD_API_KEY`
+- the current `/data-model/sparql` response shape is `{"bindings": [...]}` in this environment, so tooling should not assume strict SPARQL JSON `results.bindings`
 
 Action:
-- ensure `OFDD_API_KEY` is available to the automated testing environment
-- verify the SPARQL suite and parity suite can run unattended
+- keep verifying that `OFDD_API_KEY` is available to the actual automated testing environment before overnight runs
+- make SPARQL-parsing code tolerant to both `bindings` and `results.bindings`
+- keep treating backend auth failure as a pre-overnight readiness issue, not a product regression by default
 
 Why it matters:
 - without authenticated SPARQL/API access, BACnet graph validation is incomplete
+- without response-shape tolerance, a healthy graph can be misclassified as empty
 
 ### 2. Promote BACnet addressing to a first-class validation target
 

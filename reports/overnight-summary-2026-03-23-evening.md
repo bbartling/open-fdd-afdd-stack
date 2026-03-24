@@ -74,13 +74,22 @@ Observed:
 ### First read attempt
 A first POST to the DIY BACnet gateway `client_read_property` route returned JSON-RPC validation errors indicating the request body shape was wrong.
 
+### Follow-up contract check and corrected read
+The gateway OpenAPI confirmed that `client_read_property` expects a JSON-RPC envelope with `jsonrpc`, `id`, `method`, and `params.request`.
+
+A corrected live read then succeeded:
+- endpoint: `POST http://192.168.204.16:8080/client_read_property`
+- request target: device `3456790`, object `analog-value,1`, property `present-value`
+- result: `{"jsonrpc":"2.0","result":{"present-value":72.0},"id":1}`
+
 Interpretation:
-- this does **not** yet prove BACnet read failure
-- it shows the current tool-side request contract being used here is wrong for that endpoint
-- next overnight step should inspect the gateway API contract and issue a correctly shaped JSON-RPC request before making any BACnet-side judgment
+- the DIY BACnet gateway is reachable
+- BACnet-side live reads are working when the request uses the correct JSON-RPC envelope
+- the earlier failure was a **tooling/request-shape mistake**, not evidence that BACnet-side reads were broken
 
 ### Classification
-- **tooling / API-contract mismatch**
+- **tooling / API-contract mismatch corrected**
+- **BACnet-side read path confirmed working**
 
 ## Current overnight stance
 
@@ -89,12 +98,12 @@ Interpretation:
 
 ### Still weak
 - container evidence unavailable from this host
-- BACnet-side independent read not yet re-established with the correct request contract
 - docs route inconsistency still present
+- end-to-end fault-calculation proof is still not closed yet even though BACnet-side independent reads now work
 
 ## Highest-value next steps tonight
 
-1. inspect the DIY BACnet gateway API contract and re-run one correct live BACnet read
+1. use the corrected JSON-RPC gateway contract for additional live BACnet reads on representative modeled points
 2. continue targeted SPARQL/frontend parity isolation after the auth improvement
-3. verify fault outputs against fake-device schedules once BACnet-side independent evidence is in hand
+3. verify fault outputs against fake-device schedules now that BACnet-side independent evidence is in hand
 4. keep using PR #83 as the active dev-branch review context

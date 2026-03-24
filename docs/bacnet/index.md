@@ -9,3 +9,4 @@ These pages define how BACnet-side reality, graph context, point addressing, and
 
 - [BACnet graph context](graph_context)
 - [BACnet fault verification](fault_verification)
+- [DIY BACnet gateway RPC contract](gateway_rpc_contract)

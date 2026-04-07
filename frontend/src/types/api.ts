@@ -406,3 +406,50 @@ export interface EnergyCalculationCreateBody {
   enabled?: boolean;
 }
 
+/** GET /energy-calculations/export — LLM bundle (includes embedded calc_types). */
+export interface EnergyCalculationsExportPayload {
+  format: string;
+  site_id: string;
+  site_name: string | null;
+  exported_at: string;
+  documentation_hint?: string;
+  calc_types: EnergyCalcTypePublic[];
+  energy_calculations: EnergyCalculation[];
+}
+
+/** One row in PUT /energy-calculations/import (no DB id required). */
+export interface EnergyCalculationImportRow {
+  external_id: string;
+  name: string;
+  description?: string | null;
+  calc_type: string;
+  parameters?: Record<string, unknown>;
+  point_bindings?: Record<string, unknown>;
+  enabled?: boolean;
+  equipment_id?: string | null;
+  equipment_name?: string | null;
+}
+
+export interface EnergyCalculationsImportBody {
+  site_id: string;
+  energy_calculations: EnergyCalculationImportRow[];
+}
+
+export interface EnergyCalculationsImportResponse {
+  total: number;
+  created: number;
+  updated: number;
+  warnings: string[];
+}
+
+/** PATCH /energy-calculations/{id} */
+export type EnergyCalculationPatchBody = Partial<{
+  equipment_id: string | null;
+  name: string;
+  description: string | null;
+  calc_type: string;
+  parameters: Record<string, unknown>;
+  point_bindings: Record<string, unknown>;
+  enabled: boolean;
+}>;
+

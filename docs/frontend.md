@@ -18,7 +18,7 @@ The Open-FDD **React frontend** is available at **http://localhost:5173** (direc
 | **BACnet tools** | **Step 1 — Sites:** create or delete sites (same API as before; moved here from the Data model page). **BACnet** tab: **Step 2 — BACnet discovery** (gateway selector, Who-Is, point discovery, **Add to data model**) and optional read/write RPC. **Modbus client** tab: Modbus TCP test bench (proxied through the same gateway) and **Add rows to data model** (`modbus_config` on points; same scrape cadence as BACnet when scraping is enabled). |
 | **Points** | List points (optionally by site). Shows external ID, equipment, Brick type, FDD input, unit, polling, last value and time. Optional BACnet panel for discovery from this page; primary discovery flow is **BACnet tools**. |
 | **Data model** | Equipment tree, points, export/import, TTL view, SPARQL. Edit equipment and points; run data-model export/import and SPARQL. **Sites** are created on **BACnet tools** (Step 1). Includes a **Danger zone** at the bottom (see below). |
-| **Energy Engineering** | Per-**site** energy / savings calculation specs (dropdown-driven forms, preview, save). Rows persist in Postgres and serialize into `config/data_model.ttl` as `ofdd:EnergyCalculation` with `brick:isPartOf` the site. Optional tab for **equipment metadata** (engineering fields + optional Standard 223 topology) — still scoped to the selected site. |
+| **Energy Engineering** | Per-**site** energy / savings calculation specs: **tree by equipment** (site-level bucket + each device), **right-click** a calc to enable / disable / delete, **Download export JSON** and **Apply import** for the same LLM loop as Data Model BRICK ([AI-assisted energy calculations](modeling/ai_assisted_energy_calculations)). Form + preview for predefined calc types; optional **Equipment metadata** tab. TTL: `ofdd:EnergyCalculation`, `brick:isPartOf` the site. |
 | **Analytics** | Placeholder for future trend dashboards and fault-duration analytics; points users to Energy Engineering for site-specific savings assumptions today. |
 | **Faults** | Active fault states and definitions. Filter by site/equipment. |
 | **Plots** | CSV Plotter workbench (Plotly-style). Load Open-FDD export CSV by site/range/points or drag-drop any CSV; choose X and multiple Y columns; toggle lines/points/both; optionally overlay faults and export CSV joined with `fault_*` 0/1 signals. |
@@ -37,6 +37,13 @@ The Open-FDD **React frontend** is available at **http://localhost:5173** (direc
 - **Check faults:** Faults → see active faults and definitions; combine with Plots to correlate with sensor data.
 
 For API integration (curl, scripts), see [Appendix: API Reference](appendix/api_reference) and Swagger at http://localhost:8000/docs.
+
+---
+
+## Energy Engineering (LLM export / import)
+{: #energy-engineering }
+
+Select a **site** in the header, then open **Energy Engineering** → **Energy calculations**. The **tree** lists **Site-level** calcs and one folder per equipment asset; **right-click** a calculation to enable, disable, or delete it. Use **Download export JSON** to produce the same bundle as `GET /energy-calculations/export` (includes embedded **`calc_types`** so an external LLM knows valid `calc_type` ids and parameter keys). Paste the LLM’s **`energy_calculations`** array (or full export object) into **Apply import** — equivalent to `PUT /energy-calculations/import`. Step-by-step and copy-paste prompt: [AI-assisted energy calculations](modeling/ai_assisted_energy_calculations).
 
 ---
 

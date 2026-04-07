@@ -267,7 +267,7 @@ def test_data_model_ttl_generated_from_db():
         }
     ]
     cursor = MagicMock()
-    cursor.fetchall.side_effect = [sites, equipment, points]
+    cursor.fetchall.side_effect = [sites, equipment, points, []]
     conn = MagicMock()
     conn.__enter__ = MagicMock(return_value=conn)
     conn.__exit__ = MagicMock(return_value=None)
@@ -299,7 +299,7 @@ def test_data_model_sparql_returns_bindings():
         }
     ]
     cursor = MagicMock()
-    cursor.fetchall.side_effect = [sites, equipment, points]
+    cursor.fetchall.side_effect = [sites, equipment, points, []]
     conn = MagicMock()
     conn.__enter__ = MagicMock(return_value=conn)
     conn.__exit__ = MagicMock(return_value=None)

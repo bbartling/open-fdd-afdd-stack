@@ -1,0 +1,123 @@
+---
+title: AI-assisted energy calculations
+parent: Data modeling
+nav_order: 8
+---
+
+# AI-assisted energy engineering (export → LLM → import)
+
+After the **Brick / BACnet data model** is in place ([AI-assisted data modeling](ai_assisted_tagging), [LLM workflow](llm_workflow)), you can use the same **export → external LLM → import** pattern for **site-scoped energy / savings calculation specs**. Each building keeps its own rows in Postgres; the API also serializes them into `config/data_model.ttl` as `ofdd:EnergyCalculation` with `brick:isPartOf` the site.
+
+**Predefined calculators** (labels, parameter keys, units) are versioned in the platform (`openfdd_stack.platform.energy_calc_library`). The UI on **Energy Engineering** mirrors them; the LLM must **only** use `calc_type` values and **parameter keys** that appear in the export bundle.
+
+---
+
+## Two-phase workflow (data model, then energy)
+
+1. **Phase A — Data model** — `GET /data-model/export` → LLM tagging → `PUT /data-model/import` so equipment, points, `external_id`, and Brick types exist for the site.
+2. **Phase B — Energy** — `GET /energy-calculations/export?site_id=<uuid>` → LLM fills or edits calculation rows → `PUT /energy-calculations/import` with body `{ "site_id": "<same uuid>", "energy_calculations": [ ... ] }`.
+
+Always pass the **same `site_id`** as in the header site selector (or UUID from `GET /sites`). Calculations are **never** global.
+
+---
+
+## Export bundle (`GET /energy-calculations/export`)
+
+Query parameter: **`site_id`** (required, UUID).
+
+Response (JSON):
+
+| Field | Purpose |
+|--------|---------|
+| `format` | `openfdd_energy_calculations_v1` — version tag for agents. |
+| `site_id`, `site_name` | Scope for the LLM. |
+| `exported_at` | ISO timestamp. |
+| `calc_types` | Same structure as `GET /energy-calculations/calc-types` — **embeds** every allowed calculator with `id`, `label`, `summary`, `category`, and `fields[]` (`key`, `label`, `type`, `min`/`max`, `default`, `options` for enums). |
+| `energy_calculations` | Existing rows: `id`, `external_id`, `name`, `description`, `calc_type`, `parameters`, `point_bindings`, `enabled`, `equipment_id`, **`equipment_name`** (resolved for display), timestamps. |
+
+Download this JSON from **Energy Engineering** (“Download export JSON”) or call the API from an agent.
+
+---
+
+## Import body (`PUT /energy-calculations/import`)
+
+Top-level keys (**only** these — `extra=forbid` on the body model):
+
+- **`site_id`** (UUID string) — must match the site you are editing.
+- **`energy_calculations`** (array) — rows to **create or update** by **`(site_id, external_id)`**.
+
+Each row:
+
+| Field | Required | Notes |
+|--------|-----------|--------|
+| `external_id` | yes | Stable slug per site; primary upsert key with `site_id`. |
+| `name` | yes | Human label. |
+| `calc_type` | yes | Must be one of the `calc_types[].id` values from the export. |
+| `parameters` | no | Object; keys must match the `fields[].key` for that `calc_type`. Use numeric JSON numbers for floats. |
+| `point_bindings` | no | Map **semantic keys** (e.g. `cfm`, `kw`) to **point `external_id`** strings for documentation / future trend tie-in — not consumed by the preview library yet, but stored and exported to TTL. |
+| `enabled` | no | Default `true`. |
+| `equipment_id` | no | UUID of equipment on this site. |
+| `equipment_name` | no | Alternative to `equipment_id`: resolved under `site_id`. Fails with 400 if the name does not exist — **create equipment on Data Model BRICK first**. |
+
+Unknown keys on each row are **ignored** so you can paste rows straight from an export (e.g. `id`, `created_at`) without hand-stripping.
+
+**Upsert behavior:** If `external_id` already exists for the site, the row is **updated** (including `calc_type`, `parameters`, `enabled`, equipment link). Otherwise a new row is inserted.
+
+---
+
+## LLM prompt template (copy-paste) {#energy-calc-llm-prompt}
+
+Use as **system** or **developer** instructions when transforming the export JSON into import JSON.
+
+```text
+You are assisting with Open-FDD energy / savings calculation specs for ONE building site.
+
+The user will paste JSON from:
+GET /energy-calculations/export?site_id=<uuid>
+
+That JSON includes:
+- calc_types[] — the ONLY allowed calc_type string ids and the ONLY valid parameter keys per type.
+- energy_calculations[] — existing saved rows (may be empty).
+
+Your job is to return ONLY valid JSON with EXACTLY these two top-level keys:
+
+{
+  "site_id": "<same uuid string as in the export>",
+  "energy_calculations": [ ... ]
+}
+
+Rules:
+- Do not return markdown, comments, or extra top-level keys.
+- Preserve site_id from the export unless the user explicitly asks to change site (normally never).
+- Each energy_calculations[] element must include: external_id, name, calc_type, parameters, enabled (boolean).
+- calc_type MUST be one of calc_types[].id from the export.
+- parameters MUST use only keys listed in calc_types[].fields for that calc_type. Use JSON numbers for numeric fields.
+- Use equipment_name (string) to attach a calc to equipment when the export lists equipment names from the data model; use null equipment_id/equipment_name only for site-level calcs.
+- point_bindings: optional object mapping semantic keys to point external_id strings from the data model (e.g. { "cfm": "OA_FLOW_SCFM" }). Only reference external_ids that exist in the user's data model export if they provided one.
+- For annualized / M&V style estimates, use hours and rates consistent with the field labels in calc_types (e.g. hours_fault, electric_rate_per_kwh).
+- If job context is missing (which faults, which equipment), prefer conservative parameters or ask a short clarifying question in plain language WITHOUT emitting JSON in that turn.
+
+When returning JSON, the object must parse as Open-FDD PUT /energy-calculations/import.
+```
+
+---
+
+## Agents and HTTP context
+
+- **`GET /model-context/docs`** — Regenerated doc bundle for RAG-style agents; include updates to this page when rebuilding.
+- **`GET /mcp/manifest`** — Discover export/import paths alongside data-model tools.
+- **Swagger** — `/docs` lists `GET /energy-calculations/export` and `PUT /energy-calculations/import`.
+
+---
+
+## UI: tree and context menu
+
+On **Energy Engineering** (Energy calculations tab), calculations appear under **Site-level** or under each **equipment** node. **Right-click** a calculation row for **Enable**, **Disable**, or **Delete** (same interaction model as **Points**).
+
+---
+
+## See also
+
+- [AI-assisted data modeling](ai_assisted_tagging) — Phase A (Brick / points).
+- [LLM workflow](llm_workflow) — Canonical data-model prompt and validation habits.
+- [Frontend — Energy Engineering](../frontend#energy-engineering) — Tree, right-click, export/import buttons.

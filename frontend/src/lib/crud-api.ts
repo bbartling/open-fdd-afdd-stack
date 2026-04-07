@@ -5,6 +5,10 @@ import type {
   DataModelImportResponse,
   EnergyCalculation,
   EnergyCalculationCreateBody,
+  EnergyCalculationPatchBody,
+  EnergyCalculationsExportPayload,
+  EnergyCalculationsImportBody,
+  EnergyCalculationsImportResponse,
   EnergyCalcTypePublic,
   EnergyPreviewResult,
   PlatformConfig,
@@ -192,6 +196,28 @@ export function createEnergyCalculation(body: EnergyCalculationCreateBody) {
 export function deleteEnergyCalculation(id: string) {
   return apiFetch<{ status: string }>(`/energy-calculations/${id}`, {
     method: "DELETE",
+  });
+}
+
+export function exportEnergyCalculations(siteId: string) {
+  const q = new URLSearchParams();
+  q.set("site_id", siteId);
+  return apiFetch<EnergyCalculationsExportPayload>(`/energy-calculations/export?${q.toString()}`);
+}
+
+export function importEnergyCalculations(body: EnergyCalculationsImportBody) {
+  return apiFetch<EnergyCalculationsImportResponse>("/energy-calculations/import", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateEnergyCalculation(id: string, patch: EnergyCalculationPatchBody) {
+  return apiFetch<EnergyCalculation>(`/energy-calculations/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
   });
 }
 

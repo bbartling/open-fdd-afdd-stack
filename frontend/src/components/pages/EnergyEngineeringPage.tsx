@@ -1,17 +1,187 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Database, ListOrdered, Upload } from "lucide-react";
+import { EnergyCalcsTree } from "@/components/site/EnergyCalcsTree";
 import { useSiteContext } from "@/contexts/site-context";
 import { useEquipment } from "@/hooks/use-sites";
 import {
   createEnergyCalculation,
   deleteEnergyCalculation,
+  exportEnergyCalculations,
+  importEnergyCalculations,
   listEnergyCalculations,
   listEnergyCalcTypes,
   previewEnergyCalculation,
+  updateEnergyCalculation,
 } from "@/lib/crud-api";
-import type { EnergyCalcFieldSpec, EnergyCalcTypePublic, EnergyCalculation, EnergyPreviewResult } from "@/types/api";
+import type {
+  EnergyCalcFieldSpec,
+  EnergyCalcTypePublic,
+  EnergyCalculationsImportBody,
+  EnergyPreviewResult,
+} from "@/types/api";
 import { EquipmentMetadataTab } from "./equipment-metadata-tab";
+
+const DOCS_ENERGY_AI =
+  "https://bbartling.github.io/open-fdd-afdd-stack/modeling/ai_assisted_energy_calculations";
+
+function downloadJson(data: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function EnergyAiWorkflowCard({ siteId }: { siteId: string }) {
+  const queryClient = useQueryClient();
+  const location = useLocation();
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<string | null>(null);
+
+  const exportMut = useMutation({
+    mutationFn: () => exportEnergyCalculations(siteId),
+    onSuccess: (data) => {
+      downloadJson(data, `energy-calculations-export-${siteId.slice(0, 8)}.json`);
+    },
+  });
+
+  const importMut = useMutation({
+    mutationFn: async (raw: string) => {
+      const parsed: unknown = JSON.parse(raw);
+      let body: EnergyCalculationsImportBody;
+      if (Array.isArray(parsed)) {
+        body = {
+          site_id: siteId,
+          energy_calculations: parsed as EnergyCalculationsImportBody["energy_calculations"],
+        };
+      } else if (parsed && typeof parsed === "object" && "energy_calculations" in parsed) {
+        const o = parsed as Record<string, unknown>;
+        const rows = o.energy_calculations;
+        if (!Array.isArray(rows)) throw new Error("energy_calculations must be an array.");
+        const sid = o.site_id != null ? String(o.site_id) : siteId;
+        if (sid !== siteId) {
+          throw new Error("Export site_id does not match the site selected in the header. Switch site or fix JSON.");
+        }
+        body = {
+          site_id: siteId,
+          energy_calculations: rows as EnergyCalculationsImportBody["energy_calculations"],
+        };
+      } else {
+        throw new Error('Expected Open-FDD export object with "energy_calculations" or a JSON array of rows.');
+      }
+      return importEnergyCalculations(body);
+    },
+    onSuccess: (res) => {
+      setImportError(null);
+      setImportResult(`Imported: ${res.created} created, ${res.updated} updated (${res.total} rows).`);
+      void queryClient.invalidateQueries({ queryKey: ["energy-calculations", siteId] });
+      void queryClient.invalidateQueries({ queryKey: ["data-model"] });
+    },
+    onError: (e: Error) => {
+      setImportResult(null);
+      setImportError(e.message);
+    },
+  });
+
+  return (
+    <Card className="border-primary/15 bg-primary/[0.03]">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <ListOrdered className="h-5 w-5" />
+          AI-assisted energy calculations
+        </CardTitle>
+        <p className="text-sm font-normal text-muted-foreground">
+          After{" "}
+          <Link
+            to={{ pathname: "/data-model", search: location.search }}
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            AI-assisted data modeling
+          </Link>
+          , export this site&apos;s calculation specs for an external LLM, then import the edited JSON. Full prompt and
+          schema:{" "}
+          <a
+            href={DOCS_ENERGY_AI}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            docs — AI-assisted energy calculations
+          </a>
+          .
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>
+            Complete Brick/point tagging with{" "}
+            <strong>GET /data-model/export</strong> → LLM → <strong>PUT /data-model/import</strong> (see Data Model
+            BRICK).
+          </li>
+          <li>
+            Download the bundle below (includes <code className="rounded bg-muted px-1 text-xs">calc_types</code> field
+            definitions for each predefined calculator).
+          </li>
+          <li>
+            Paste the JSON into your LLM with the documentation prompt; ask for updated{" "}
+            <code className="rounded bg-muted px-1 text-xs">energy_calculations</code> only, using valid{" "}
+            <code className="rounded bg-muted px-1 text-xs">calc_type</code> ids and parameter keys from the bundle.
+          </li>
+          <li>Paste the LLM output here and click Apply import (same site as in the header).</li>
+        </ol>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => exportMut.mutate()}
+            disabled={exportMut.isPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-border/60 bg-muted/50 px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            <Database className="h-4 w-4" />
+            {exportMut.isPending ? "Preparing…" : "Download export JSON"}
+          </button>
+        </div>
+        {exportMut.isError && (
+          <p className="text-sm text-destructive">{(exportMut.error as Error).message}</p>
+        )}
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Paste from AI (full export with <code className="rounded bg-muted px-1 text-xs">energy_calculations</code>, or
+            only the <code className="rounded bg-muted px-1 text-xs">energy_calculations</code> array — site must match the
+            header).
+          </p>
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            className="h-36 w-full rounded-lg border border-border/60 bg-card px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            spellCheck={false}
+            placeholder='{ "format": "openfdd_energy_calculations_v1", "energy_calculations": [ ... ] }'
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setImportError(null);
+              setImportResult(null);
+              importMut.mutate(importText);
+            }}
+            disabled={importMut.isPending || !importText.trim()}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            {importMut.isPending ? "Applying…" : "Apply import"}
+          </button>
+          {importError && <p className="text-sm text-destructive">{importError}</p>}
+          {importResult && <p className="text-sm text-muted-foreground">{importResult}</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function slugFromName(name: string): string {
   const s = name
@@ -61,7 +231,7 @@ function EnergyCalculationWorkbench() {
     queryFn: listEnergyCalcTypes,
   });
 
-  const calcTypes = typesQuery.data?.calc_types ?? [];
+  const calcTypes = useMemo(() => typesQuery.data?.calc_types ?? [], [typesQuery.data]);
   const [calcTypeId, setCalcTypeId] = useState<string>("");
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [name, setName] = useState("");
@@ -72,19 +242,21 @@ function EnergyCalculationWorkbench() {
   const [preview, setPreview] = useState<EnergyPreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  const effectiveCalcTypeId = useMemo(() => {
+    if (!calcTypes.length) return "";
+    if (calcTypeId && calcTypes.some((c) => c.id === calcTypeId)) return calcTypeId;
+    return calcTypes[0].id;
+  }, [calcTypes, calcTypeId]);
+
   const activeSpec: EnergyCalcTypePublic | undefined = useMemo(
-    () => calcTypes.find((c) => c.id === calcTypeId),
-    [calcTypes, calcTypeId],
+    () => calcTypes.find((c) => c.id === effectiveCalcTypeId),
+    [calcTypes, effectiveCalcTypeId],
   );
 
-  useEffect(() => {
-    if (!calcTypes.length) return;
-    if (!calcTypeId || !calcTypes.some((c) => c.id === calcTypeId)) {
-      const first = calcTypes[0];
-      setCalcTypeId(first.id);
-      setParamValues(defaultsFromFields(first.fields));
-    }
-  }, [calcTypes, calcTypeId]);
+  const mergedParamValues = useMemo(() => {
+    if (!activeSpec) return paramValues;
+    return { ...defaultsFromFields(activeSpec.fields), ...paramValues };
+  }, [activeSpec, paramValues]);
 
   const onCalcTypeChange = useCallback(
     (id: string) => {
@@ -106,8 +278,8 @@ function EnergyCalculationWorkbench() {
   const previewMut = useMutation({
     mutationFn: async () => {
       if (!activeSpec) throw new Error("No calculation type selected.");
-      const parameters = buildParametersFromForm(activeSpec.fields, paramValues);
-      return previewEnergyCalculation(calcTypeId, parameters);
+      const parameters = buildParametersFromForm(activeSpec.fields, mergedParamValues);
+      return previewEnergyCalculation(effectiveCalcTypeId, parameters);
     },
     onSuccess: (data) => {
       setPreview(data);
@@ -132,7 +304,7 @@ function EnergyCalculationWorkbench() {
       } catch {
         throw new Error("Point bindings must be valid JSON object.");
       }
-      const parameters = buildParametersFromForm(activeSpec.fields, paramValues);
+      const parameters = buildParametersFromForm(activeSpec.fields, mergedParamValues);
       const ext = externalId.trim() || slugFromName(name);
       if (!ext) throw new Error("Name or external id is required.");
       const body = {
@@ -141,7 +313,7 @@ function EnergyCalculationWorkbench() {
         external_id: ext,
         name: name.trim() || ext,
         description: description.trim() || null,
-        calc_type: calcTypeId,
+        calc_type: effectiveCalcTypeId,
         parameters,
         point_bindings,
         enabled: true,
@@ -166,10 +338,14 @@ function EnergyCalculationWorkbench() {
     },
   });
 
-  useEffect(() => {
-    if (!name.trim()) return;
-    if (!externalId.trim()) setExternalId(slugFromName(name));
-  }, [name, externalId]);
+  const patchMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      updateEnergyCalculation(id, { enabled }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["energy-calculations", selectedSiteId] });
+      void queryClient.invalidateQueries({ queryKey: ["data-model"] });
+    },
+  });
 
   if (!selectedSiteId) {
     return (
@@ -196,6 +372,34 @@ function EnergyCalculationWorkbench() {
 
       <Card>
         <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Calculations by equipment</CardTitle>
+          <p className="text-xs font-normal text-muted-foreground">
+            Tree matches site equipment; site-level calcs are not tied to a device. Right-click a row for Enable, Disable,
+            or Delete (same idea as the Points page).
+          </p>
+        </CardHeader>
+        <CardContent>
+          {listQuery.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {listQuery.isError && (
+            <p className="text-sm text-destructive">{(listQuery.error as Error).message}</p>
+          )}
+          {listQuery.data && (
+            <EnergyCalcsTree
+              equipment={siteEquipment}
+              calculations={listQuery.data}
+              onSetEnabled={(id, enabled) => patchMut.mutate({ id, enabled })}
+              onDeleteCalc={(id, name) => {
+                if (window.confirm(`Delete calculation "${name}"?`)) deleteMut.mutate(id);
+              }}
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      <EnergyAiWorkflowCard siteId={selectedSiteId} />
+
+      <Card>
+        <CardHeader className="pb-2">
           <CardTitle className="text-lg">New calculation</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -204,7 +408,7 @@ function EnergyCalculationWorkbench() {
             <select
               id="eecalc-type"
               className="h-9 w-full max-w-xl rounded-lg border border-border/60 bg-background px-3 text-sm"
-              value={calcTypeId}
+              value={effectiveCalcTypeId}
               onChange={(e) => onCalcTypeChange(e.target.value)}
               disabled={!calcTypes.length}
             >
@@ -227,7 +431,16 @@ function EnergyCalculationWorkbench() {
               <input
                 id="eecalc-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const prevSlug = slugFromName(name);
+                  setName(v);
+                  setExternalId((ex) => {
+                    const nextSlug = slugFromName(v);
+                    if (!ex.trim() || ex === prevSlug) return nextSlug;
+                    return ex;
+                  });
+                }}
                 className="h-9 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
                 placeholder="e.g. AHU-1 excess OA heating"
               />
@@ -282,7 +495,7 @@ function EnergyCalculationWorkbench() {
                       <select
                         id={id}
                         className="h-9 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
-                        value={paramValues[f.key] ?? ""}
+                        value={mergedParamValues[f.key] ?? ""}
                         onChange={(e) => setParamValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
                       >
                         <option value="">—</option>
@@ -312,7 +525,7 @@ function EnergyCalculationWorkbench() {
                       id={id}
                       type="text"
                       inputMode="decimal"
-                      value={paramValues[f.key] ?? ""}
+                      value={mergedParamValues[f.key] ?? ""}
                       onChange={(e) => setParamValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
                       className="h-9 w-full rounded-lg border border-border/60 bg-background px-3 text-sm font-mono"
                     />
@@ -368,44 +581,6 @@ function EnergyCalculationWorkbench() {
               </ul>
               <p className="mt-2 text-xs text-muted-foreground">{preview.notes}</p>
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Saved for this site</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {listQuery.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {listQuery.isError && (
-            <p className="text-sm text-destructive">{(listQuery.error as Error).message}</p>
-          )}
-          {listQuery.data && listQuery.data.length === 0 && (
-            <p className="text-sm text-muted-foreground">No energy calculations yet for this site.</p>
-          )}
-          {listQuery.data && listQuery.data.length > 0 && (
-            <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
-              {listQuery.data.map((row: EnergyCalculation) => (
-                <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
-                  <div>
-                    <span className="font-medium">{row.name}</span>{" "}
-                    <code className="rounded bg-muted px-1 text-xs">{row.external_id}</code>{" "}
-                    <span className="text-muted-foreground">· {row.calc_type}</span>
-                    {!row.enabled && <span className="text-xs text-amber-600"> (disabled)</span>}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`Delete "${row.name}"?`)) deleteMut.mutate(row.id);
-                    }}
-                    className="text-xs text-destructive underline-offset-2 hover:underline"
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
           )}
         </CardContent>
       </Card>

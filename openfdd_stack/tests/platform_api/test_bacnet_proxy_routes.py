@@ -163,3 +163,34 @@ def test_bacnet_read_point_priority_array_proxy(mock_post):
     )
     assert r.status_code == 200
     assert mock_post.call_args.kwargs["json"]["method"] == "client_read_point_priority_array"
+
+
+@patch("openfdd_stack.platform.api.bacnet.httpx.post")
+def test_bacnet_modbus_read_registers_proxy(mock_post, monkeypatch):
+    monkeypatch.setenv("OFDD_BACNET_SERVER_API_KEY", "test-bacnet-proxy-key")
+    mock_post.return_value = _mock_httpx_ok(
+        {"readings": [{"success": True, "decoded": 12.5, "address": 0}]}
+    )
+    r = client.post(
+        "/bacnet/modbus_read_registers",
+        json={
+            "host": "10.0.0.2",
+            "port": 502,
+            "unit_id": 1,
+            "timeout": 3.0,
+            "registers": [
+                {"address": 0, "count": 1, "function": "holding", "decode": "uint16"}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get("ok") is True
+    assert data.get("body", {}).get("readings")
+    mock_post.assert_called_once()
+    url = mock_post.call_args[0][0]
+    assert url.endswith("/modbus/read_registers")
+    assert mock_post.call_args.kwargs["headers"].get("Authorization") == "Bearer test-bacnet-proxy-key"
+    body = mock_post.call_args.kwargs["json"]
+    assert body["host"] == "10.0.0.2"
+    assert body["registers"][0]["address"] == 0

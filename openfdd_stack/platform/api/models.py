@@ -1,7 +1,7 @@
 """Pydantic models for CRUD API."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,7 +42,14 @@ class PointCreate(BaseModel):
     object_name: Optional[str] = Field(None, max_length=256)
     polling: Optional[bool] = Field(
         True,
-        description="If true, BACnet scraper polls this point; set false to exclude from scrape.",
+        description="If true, BACnet / Modbus scraper polls this point when applicable; set false to exclude.",
+    )
+    modbus_config: Optional[dict[str, Any]] = Field(
+        None,
+        description=(
+            "Modbus TCP read spec for this point (host, port, unit_id, timeout, function, address, count; "
+            "optional decode, scale, offset, label). When set, BACnet fields are usually omitted."
+        ),
     )
 
 
@@ -56,6 +63,7 @@ class PointUpdate(BaseModel):
     object_identifier: Optional[str] = Field(None, max_length=128)
     object_name: Optional[str] = Field(None, max_length=256)
     polling: Optional[bool] = None
+    modbus_config: Optional[dict[str, Any]] = None
 
 
 class PointRead(BaseModel):
@@ -73,6 +81,7 @@ class PointRead(BaseModel):
     object_identifier: Optional[str] = None
     object_name: Optional[str] = None
     polling: bool = True
+    modbus_config: Optional[dict[str, Any]] = None
     created_at: datetime
 
 

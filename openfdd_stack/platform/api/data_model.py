@@ -16,6 +16,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 import psycopg2
+from psycopg2.extras import Json
 from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -148,6 +149,10 @@ class UnifiedExportRow(BaseModel):
         False,
         description="If true, BACnet scraper polls this point; false by default for unimported objects.",
     )
+    modbus_config: dict | None = Field(
+        None,
+        description="When set, point is read via Modbus TCP (diy gateway /modbus/read_registers); same scrape interval as BACnet.",
+    )
 
 
 def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
@@ -198,7 +203,7 @@ def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
                     SELECT p.id, p.site_id, s.name AS site_name, p.equipment_id, e.name AS equipment_name, e.metadata AS equipment_metadata,
                            p.external_id, p.brick_type, p.fdd_input, p.unit,
                            p.bacnet_device_id, p.object_identifier, p.object_name,
-                           COALESCE(p.polling, true) AS polling
+                           COALESCE(p.polling, true) AS polling, p.modbus_config
                     FROM points p
                     LEFT JOIN sites s ON s.id = p.site_id
                     LEFT JOIN equipment e ON e.id = p.equipment_id
@@ -249,6 +254,11 @@ def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
                             rule_input=row.get("fdd_input"),
                             unit=row.get("unit"),
                             polling=bool(row.get("polling", True)),
+                            modbus_config=(
+                                row.get("modbus_config")
+                                if isinstance(row.get("modbus_config"), dict)
+                                else None
+                            ),
                         ),
                     )
                 else:
@@ -269,6 +279,7 @@ def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
                             rule_input=None,
                             unit=None,
                             polling=False,
+                            modbus_config=None,
                         ),
                     )
 
@@ -281,7 +292,7 @@ def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
                     SELECT p.id, p.site_id, s.name AS site_name, p.external_id,
                            p.equipment_id, e.name AS equipment_name, e.metadata AS equipment_metadata, p.brick_type, p.fdd_input, p.unit,
                            p.bacnet_device_id, p.object_identifier, p.object_name,
-                           COALESCE(p.polling, true) AS polling
+                           COALESCE(p.polling, true) AS polling, p.modbus_config
                     FROM points p
                     LEFT JOIN sites s ON s.id = p.site_id
                     LEFT JOIN equipment e ON e.id = p.equipment_id
@@ -295,7 +306,7 @@ def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
                     SELECT p.id, p.site_id, s.name AS site_name, p.external_id,
                            p.equipment_id, e.name AS equipment_name, e.metadata AS equipment_metadata, p.brick_type, p.fdd_input, p.unit,
                            p.bacnet_device_id, p.object_identifier, p.object_name,
-                           COALESCE(p.polling, true) AS polling
+                           COALESCE(p.polling, true) AS polling, p.modbus_config
                     FROM points p
                     LEFT JOIN sites s ON s.id = p.site_id
                     LEFT JOIN equipment e ON e.id = p.equipment_id
@@ -328,6 +339,11 @@ def _build_unified_export(site_id: str | None = None) -> list[UnifiedExportRow]:
                         rule_input=r.get("fdd_input"),
                         unit=r.get("unit"),
                         polling=bool(r.get("polling", True)),
+                        modbus_config=(
+                            r.get("modbus_config")
+                            if isinstance(r.get("modbus_config"), dict)
+                            else None
+                        ),
                     ),
                 )
     return out
@@ -416,6 +432,10 @@ class PointImportRow(BaseModel):
     polling: bool | None = Field(
         None,
         description="If true, BACnet scraper polls this point; false to exclude from scrape. Omit to leave unchanged (update) or default true (create).",
+    )
+    modbus_config: dict | None = Field(
+        None,
+        description="Modbus TCP read spec (host, port, unit_id, address, function, count, …). Omit on update to leave unchanged.",
     )
 
     model_config = {
@@ -655,6 +675,18 @@ def _upsert_equipment_metadata(
     )
 
 
+def _valid_modbus_config(mc: Any) -> bool:
+    if not isinstance(mc, dict):
+        return False
+    if not str(mc.get("host") or "").strip():
+        return False
+    try:
+        int(mc["address"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
 def _create_or_upsert_without_point_id(
     cur: Any,
     point_row: PointImportRow,
@@ -677,7 +709,17 @@ def _create_or_upsert_without_point_id(
         and str(point_row.site_name).strip()
     ):
         effective_site_id = _resolve_site_id_by_name(cur, point_row.site_name)
-    if not all(
+
+    mc = point_row.modbus_config
+    modbus_path = _valid_modbus_config(mc)
+
+    if modbus_path:
+        if not (effective_site_id and point_row.external_id):
+            return (
+                "skipped",
+                "Modbus point needs site_id/site_name and external_id",
+            )
+    elif not all(
         [
             effective_site_id,
             point_row.external_id,
@@ -687,7 +729,7 @@ def _create_or_upsert_without_point_id(
     ):
         return (
             "skipped",
-            "point_id not found and create fields incomplete (need site_id/site_name, external_id, bacnet_device_id, object_identifier)",
+            "point_id not found and create fields incomplete (need site_id/site_name, external_id, bacnet_device_id, object_identifier) or valid modbus_config",
         )
     site_uuid = _parse_uuid_or_400(
         effective_site_id,
@@ -714,6 +756,56 @@ def _create_or_upsert_without_point_id(
     _polling = point_row.polling if point_row.polling is not None else True
     _brick = _normalize_brick_type(point_row.brick_type)
     _fdd = point_row.rule_input if point_row.rule_input is not None else point_row.fdd_input
+    if modbus_path:
+        insert_params = (
+            str(site_uuid),
+            point_row.external_id,
+            None,
+            None,
+            None,
+            equip_uuid_str,
+            _brick,
+            _fdd,
+            point_row.unit,
+            point_row.description,
+            _polling,
+            Json(mc),
+        )
+        try:
+            cur.execute("SAVEPOINT point_import_insert")
+            cur.execute(
+                """INSERT INTO points (site_id, external_id, bacnet_device_id, object_identifier, object_name, equipment_id, brick_type, fdd_input, unit, description, polling, modbus_config)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                insert_params,
+            )
+            if cur.rowcount:
+                return ("created", None)
+        except psycopg2.IntegrityError as e:
+            if e.pgcode != "23505":
+                raise
+            cur.execute("ROLLBACK TO SAVEPOINT point_import_insert")
+            cur.execute(
+                """UPDATE points SET equipment_id = %s, brick_type = %s, fdd_input = %s, unit = %s, description = %s, polling = %s, modbus_config = %s
+                   WHERE site_id = %s AND external_id = %s""",
+                (
+                    equip_uuid_str,
+                    _brick,
+                    _fdd,
+                    point_row.unit,
+                    point_row.description,
+                    _polling,
+                    Json(mc),
+                    str(site_uuid),
+                    point_row.external_id,
+                ),
+            )
+            if cur.rowcount:
+                return (
+                    "updated",
+                    "duplicate in payload; existing point updated (last wins)",
+                )
+        return ("skipped", "point create/upsert did not affect any row")
+
     insert_params = (
         str(site_uuid),
         point_row.external_id,
@@ -726,12 +818,13 @@ def _create_or_upsert_without_point_id(
         point_row.unit,
         point_row.description,
         _polling,
+        None,
     )
     try:
         cur.execute("SAVEPOINT point_import_insert")
         cur.execute(
-            """INSERT INTO points (site_id, external_id, bacnet_device_id, object_identifier, object_name, equipment_id, brick_type, fdd_input, unit, description, polling)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            """INSERT INTO points (site_id, external_id, bacnet_device_id, object_identifier, object_name, equipment_id, brick_type, fdd_input, unit, description, polling, modbus_config)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             insert_params,
         )
         if cur.rowcount:
@@ -922,6 +1015,13 @@ def import_data_model(body: DataModelImportBody):
                     if row.polling is not None:
                         updates.append("polling = %s")
                         params.append(row.polling)
+                    if row.modbus_config is not None:
+                        updates.append("modbus_config = %s")
+                        params.append(
+                            Json(row.modbus_config)
+                            if row.modbus_config
+                            else None
+                        )
                     if updates:
                         params.append(str(point_uuid))
                         cur.execute(

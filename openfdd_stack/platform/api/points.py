@@ -4,6 +4,7 @@ from uuid import UUID
 
 import psycopg2
 from fastapi import APIRouter, HTTPException, Query
+from psycopg2.extras import Json
 
 from openfdd_stack.platform.database import get_conn
 from openfdd_stack.platform.data_model_ttl import sync_ttl_to_file
@@ -12,7 +13,11 @@ from openfdd_stack.platform.realtime import emit, TOPIC_CRUD_POINT
 
 router = APIRouter(prefix="/points", tags=["points"])
 
-_COLS = "id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, created_at"
+_COLS = (
+    "id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, "
+    "bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, "
+    "modbus_config, created_at"
+)
 
 
 @router.get("", response_model=list[PointRead])
@@ -44,25 +49,32 @@ def list_points(
     return [PointRead.model_validate(dict(r)) for r in rows]
 
 
+_RETURNS = (
+    "RETURNING id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, "
+    "bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, "
+    "modbus_config, created_at"
+)
+
+
 @router.post("", response_model=PointRead)
 def create_point(body: PointCreate):
     """Create a point. Idempotent: if external_id+site_id exists, returns existing (200)."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, created_at
-                   FROM points WHERE site_id = %s AND external_id = %s""",
+                f"""SELECT {_COLS} FROM points WHERE site_id = %s AND external_id = %s""",
                 (str(body.site_id), body.external_id),
             )
             existing = cur.fetchone()
             if existing:
                 return PointRead.model_validate(dict(existing))
             polling = body.polling if body.polling is not None else True
+            mc = Json(body.modbus_config) if body.modbus_config is not None else None
             try:
                 cur.execute(
-                    """INSERT INTO points (site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, polling)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                       RETURNING id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, created_at""",
+                    f"""INSERT INTO points (site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, polling, modbus_config)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       {_RETURNS}""",
                     (
                         str(body.site_id),
                         body.external_id,
@@ -75,6 +87,7 @@ def create_point(body: PointCreate):
                         body.object_identifier,
                         body.object_name,
                         polling,
+                        mc,
                     ),
                 )
                 row = cur.fetchone()
@@ -105,8 +118,7 @@ def get_point(point_id: UUID):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, created_at
-                   FROM points WHERE id = %s""",
+                f"""SELECT {_COLS} FROM points WHERE id = %s""",
                 (str(point_id),),
             )
             row = cur.fetchone()
@@ -118,34 +130,41 @@ def get_point(point_id: UUID):
 @router.patch("/{point_id}", response_model=PointRead)
 def update_point(point_id: UUID, body: PointUpdate):
     """Update a point."""
+    data = body.model_dump(exclude_unset=True)
     updates, params = [], []
-    if body.brick_type is not None:
+    if "brick_type" in data:
         updates.append("brick_type = %s")
-        params.append(body.brick_type)
-    if body.fdd_input is not None:
+        params.append(data["brick_type"])
+    if "fdd_input" in data:
         updates.append("fdd_input = %s")
-        params.append(body.fdd_input)
-    if body.unit is not None:
+        params.append(data["fdd_input"])
+    if "unit" in data:
         updates.append("unit = %s")
-        params.append(body.unit)
-    if body.description is not None:
+        params.append(data["unit"])
+    if "description" in data:
         updates.append("description = %s")
-        params.append(body.description)
-    if body.equipment_id is not None:
+        params.append(data["description"])
+    if "equipment_id" in data:
         updates.append("equipment_id = %s")
-        params.append(str(body.equipment_id))
-    if body.bacnet_device_id is not None:
+        params.append(
+            str(data["equipment_id"]) if data["equipment_id"] is not None else None
+        )
+    if "bacnet_device_id" in data:
         updates.append("bacnet_device_id = %s")
-        params.append(body.bacnet_device_id)
-    if body.object_identifier is not None:
+        params.append(data["bacnet_device_id"])
+    if "object_identifier" in data:
         updates.append("object_identifier = %s")
-        params.append(body.object_identifier)
-    if body.object_name is not None:
+        params.append(data["object_identifier"])
+    if "object_name" in data:
         updates.append("object_name = %s")
-        params.append(body.object_name)
-    if body.polling is not None:
+        params.append(data["object_name"])
+    if "polling" in data:
         updates.append("polling = %s")
-        params.append(body.polling)
+        params.append(data["polling"])
+    if "modbus_config" in data:
+        updates.append("modbus_config = %s")
+        mc = data["modbus_config"]
+        params.append(Json(mc) if mc is not None else None)
     if not updates:
         return get_point(point_id)
     params.append(str(point_id))
@@ -153,7 +172,7 @@ def update_point(point_id: UUID, body: PointUpdate):
         with conn.cursor() as cur:
             cur.execute(
                 f"""UPDATE points SET {', '.join(updates)} WHERE id = %s
-                    RETURNING id, site_id, external_id, brick_type, fdd_input, unit, description, equipment_id, bacnet_device_id, object_identifier, object_name, COALESCE(polling, true) AS polling, created_at""",
+                    {_RETURNS}""",
                 params,
             )
             row = cur.fetchone()

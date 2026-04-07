@@ -54,6 +54,8 @@ export interface Point {
   object_name: string | null;
   /** From data model (ofdd:polling in TTL). If true, BACnet scraper polls this point. */
   polling: boolean;
+  /** When set, Modbus TCP scrape reads this point via the BACnet gateway /modbus/read_registers. */
+  modbus_config?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -143,6 +145,8 @@ export interface DataModelExportRow {
   rule_input?: string | null;
   unit?: string | null;
   polling?: boolean;
+  /** Modbus TCP register map for this point (same scrape interval as BACnet when enabled). */
+  modbus_config?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 

@@ -6,6 +6,7 @@ import {
   bacnetWriteProperty,
   bacnetSupervisoryLogicChecks,
   bacnetReadPointPriorityArray,
+  bacnetModbusReadRegisters,
 } from "@/lib/crud-api";
 
 describe("BACnet proxy API helpers", () => {
@@ -71,6 +72,25 @@ describe("BACnet proxy API helpers", () => {
     expect(api.apiFetch).toHaveBeenCalledWith(
       "/bacnet/read_point_priority_array?gateway=default",
       expect.any(Object),
+    );
+  });
+
+  it("bacnetModbusReadRegisters posts to /bacnet/modbus_read_registers with gateway query", async () => {
+    await bacnetModbusReadRegisters(
+      {
+        host: "10.0.0.1",
+        port: 502,
+        unit_id: 1,
+        registers: [{ address: 0, count: 1, function: "holding" }],
+      },
+      "default",
+    );
+    expect(api.apiFetch).toHaveBeenCalledWith(
+      "/bacnet/modbus_read_registers?gateway=default",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("10.0.0.1"),
+      }),
     );
   });
 

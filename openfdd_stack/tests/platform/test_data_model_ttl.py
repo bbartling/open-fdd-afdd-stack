@@ -83,6 +83,37 @@ def test_build_ttl_one_site_one_point():
     assert "ref:storedAt" in ttl
 
 
+def test_build_ttl_point_with_modbus_config():
+    site_id = uuid4()
+    point_id = uuid4()
+    sites = [{"id": site_id, "name": "Site-M"}]
+    equipment = []
+    mc = {"host": "192.168.1.10", "port": 502, "unit_id": 1, "address": 100, "function": "holding"}
+    points = [
+        {
+            "id": point_id,
+            "site_id": site_id,
+            "external_id": "meter_kW",
+            "brick_type": "Power_Sensor",
+            "fdd_input": "meter_kw",
+            "unit": "kW",
+            "equipment_id": None,
+            "polling": True,
+            "bacnet_device_id": None,
+            "object_identifier": None,
+            "object_name": None,
+            "modbus_config": mc,
+        }
+    ]
+    cursor = _mock_cursor(sites, equipment, points)
+    conn = _mock_conn(cursor)
+    with patch("openfdd_stack.platform.data_model_ttl.get_conn", return_value=conn):
+        ttl = build_ttl_from_db()
+    assert "ofdd:modbusConfig" in ttl
+    assert "192.168.1.10" in ttl
+    assert "meter_kW" in ttl
+
+
 def test_build_ttl_site_with_equipment_and_points():
     site_id = uuid4()
     eq_id = uuid4()

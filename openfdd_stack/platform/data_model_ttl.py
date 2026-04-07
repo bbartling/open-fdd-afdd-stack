@@ -13,6 +13,7 @@ section after BACNET_SECTION_MARKER. CRUD and point_discovery_to_graph update th
 from __future__ import annotations
 
 import atexit
+import json
 import logging
 import threading
 from pathlib import Path
@@ -69,6 +70,10 @@ def _append_point(lines: list[str], p: dict[str, Any], parent_uri: str) -> None:
     lines.append(f"{pt_uri} a brick:{brick_type} ;")
     lines.append(f'    rdfs:label "{label}" ;')
     lines.append(f"    ofdd:polling {'true' if polling else 'false'} ;")
+    mc = p.get("modbus_config")
+    if isinstance(mc, dict) and mc:
+        mc_json = json.dumps(mc, separators=(",", ":"), sort_keys=True)
+        lines.append(f'    ofdd:modbusConfig "{_escape(mc_json)}" ;')
     if p.get("unit"):
         lines.append(f'    ofdd:unit "{_escape(p["unit"])}" ;')
     bacnet_id = p.get("bacnet_device_id")
@@ -143,7 +148,7 @@ def build_ttl_from_db(site_id: UUID | None = None) -> str:
             equipment = cur.fetchall()
             cur.execute(
                 """SELECT id, site_id, external_id, brick_type, fdd_input, unit, equipment_id, COALESCE(polling, true) AS polling,
-                   bacnet_device_id, object_identifier, object_name
+                   bacnet_device_id, object_identifier, object_name, modbus_config
                    FROM points WHERE site_id = ANY(%s::uuid[]) ORDER BY site_id, external_id""",
                 (site_ids,),
             )

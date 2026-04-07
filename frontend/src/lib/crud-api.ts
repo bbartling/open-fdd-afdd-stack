@@ -92,10 +92,33 @@ export function deletePoint(pointId: string) {
   });
 }
 
-/** PATCH a point (e.g. set polling so BACnet scraper includes it). */
+export type PointCreateBody = {
+  site_id: string;
+  external_id: string;
+  brick_type?: string | null;
+  fdd_input?: string | null;
+  unit?: string | null;
+  description?: string | null;
+  equipment_id?: string | null;
+  bacnet_device_id?: string | null;
+  object_identifier?: string | null;
+  object_name?: string | null;
+  polling?: boolean | null;
+  modbus_config?: Record<string, unknown> | null;
+};
+
+export function createPoint(body: PointCreateBody): Promise<Point> {
+  return apiFetch<Point>("/points", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** PATCH a point (e.g. polling or Modbus spec). */
 export function updatePoint(
   pointId: string,
-  body: { polling?: boolean },
+  body: { polling?: boolean; modbus_config?: Record<string, unknown> | null },
 ): Promise<Point> {
   return apiFetch<Point>(`/points/${pointId}`, {
     method: "PATCH",
@@ -242,6 +265,18 @@ export function bacnetReadPointPriorityArray(
   gateway: string,
 ) {
   return apiFetch<BacnetProxyResult>(`/bacnet/read_point_priority_array${_bacnetGw(gateway)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Proxy to gateway POST /modbus/read_registers (utility meters, eGauge, etc.). */
+export function bacnetModbusReadRegisters(
+  body: Record<string, unknown>,
+  gateway: string,
+) {
+  return apiFetch<BacnetProxyResult>(`/bacnet/modbus_read_registers${_bacnetGw(gateway)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

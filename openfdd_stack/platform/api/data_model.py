@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from openfdd_stack.platform.config import get_platform_settings
 from openfdd_stack.platform.database import get_conn
+from openfdd_stack.platform.modbus_point_config import normalize_modbus_config
 from openfdd_stack.platform.data_model_ttl import (
     build_ttl_from_db,
     get_ttl_for_sparql,
@@ -675,18 +676,6 @@ def _upsert_equipment_metadata(
     )
 
 
-def _valid_modbus_config(mc: Any) -> bool:
-    if not isinstance(mc, dict):
-        return False
-    if not str(mc.get("host") or "").strip():
-        return False
-    try:
-        int(mc["address"])
-    except (KeyError, TypeError, ValueError):
-        return False
-    return True
-
-
 def _create_or_upsert_without_point_id(
     cur: Any,
     point_row: PointImportRow,
@@ -711,7 +700,8 @@ def _create_or_upsert_without_point_id(
         effective_site_id = _resolve_site_id_by_name(cur, point_row.site_name)
 
     mc = point_row.modbus_config
-    modbus_path = _valid_modbus_config(mc)
+    mc_norm = normalize_modbus_config(mc) if isinstance(mc, dict) else None
+    modbus_path = mc_norm is not None
 
     if modbus_path:
         if not (effective_site_id and point_row.external_id):
@@ -769,7 +759,7 @@ def _create_or_upsert_without_point_id(
             point_row.unit,
             point_row.description,
             _polling,
-            Json(mc),
+            Json(mc_norm),
         )
         try:
             cur.execute("SAVEPOINT point_import_insert")
@@ -794,7 +784,7 @@ def _create_or_upsert_without_point_id(
                     point_row.unit,
                     point_row.description,
                     _polling,
-                    Json(mc),
+                    Json(mc_norm),
                     str(site_uuid),
                     point_row.external_id,
                 ),
@@ -1016,12 +1006,21 @@ def import_data_model(body: DataModelImportBody):
                         updates.append("polling = %s")
                         params.append(row.polling)
                     if row.modbus_config is not None:
-                        updates.append("modbus_config = %s")
-                        params.append(
-                            Json(row.modbus_config)
-                            if row.modbus_config
-                            else None
-                        )
+                        if not row.modbus_config:
+                            updates.append("modbus_config = %s")
+                            params.append(None)
+                        else:
+                            _nmc = normalize_modbus_config(row.modbus_config)
+                            if _nmc is None:
+                                warnings.append(
+                                    {
+                                        "point_id": row.point_id,
+                                        "reason": "modbus_config could not be normalized; column not updated",
+                                    }
+                                )
+                            else:
+                                updates.append("modbus_config = %s")
+                                params.append(Json(_nmc))
                     if updates:
                         params.append(str(point_uuid))
                         cur.execute(

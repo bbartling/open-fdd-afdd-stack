@@ -280,9 +280,11 @@ export function BacnetToolsPage() {
 
       <div className="mb-4 flex flex-wrap gap-2 border-b border-border/60 pb-3" role="tablist" aria-label="Gateway tool sections">
         <button
+          id="tab-bacnet-tools-bacnet"
           type="button"
           role="tab"
           aria-selected={section === "bacnet"}
+          aria-controls="bacnet-tools-panel-bacnet"
           onClick={() => setSection("bacnet")}
           className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
             section === "bacnet"
@@ -294,9 +296,11 @@ export function BacnetToolsPage() {
           BACnet
         </button>
         <button
+          id="tab-bacnet-tools-modbus"
           type="button"
           role="tab"
           aria-selected={section === "modbus"}
+          aria-controls="bacnet-tools-panel-modbus"
           onClick={() => setSection("modbus")}
           className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
             section === "modbus"
@@ -309,10 +313,23 @@ export function BacnetToolsPage() {
         </button>
       </div>
 
-      {section === "modbus" ? (
+      <div
+        id="bacnet-tools-panel-modbus"
+        role="tabpanel"
+        aria-labelledby="tab-bacnet-tools-modbus"
+        hidden={section !== "modbus"}
+        className={section !== "modbus" ? "hidden" : undefined}
+      >
         <ModbusClientPanel gateway={gateway} />
-      ) : (
-        <>
+      </div>
+
+      <div
+        id="bacnet-tools-panel-bacnet"
+        role="tabpanel"
+        aria-labelledby="tab-bacnet-tools-bacnet"
+        hidden={section !== "bacnet"}
+        className={section !== "bacnet" ? "hidden" : undefined}
+      >
       <BacnetDiscoveryPanel />
 
       <h2 className="mb-2 mt-10 text-lg font-semibold tracking-tight">Optional BACnet tools</h2>
@@ -684,8 +701,7 @@ export function BacnetToolsPage() {
           />
         </CardContent>
       </Card>
-        </>
-      )}
+      </div>
     </div>
   );
 }

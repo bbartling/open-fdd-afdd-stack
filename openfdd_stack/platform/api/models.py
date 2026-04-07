@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SiteCreate(BaseModel):
@@ -52,6 +52,27 @@ class PointCreate(BaseModel):
         ),
     )
 
+    @field_validator("modbus_config")
+    @classmethod
+    def _validate_modbus_config_create(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if not isinstance(v, dict):
+            raise ValueError("modbus_config must be a JSON object or null")
+        if len(v) == 0:
+            return v
+        from openfdd_stack.platform.modbus_point_config import normalize_modbus_config
+
+        n = normalize_modbus_config(v)
+        if n is None:
+            raise ValueError(
+                "Invalid modbus_config: require non-empty host, integer address (0-65535), "
+                "function holding or input; optional port 1-65535, unit_id 0-247, "
+                "timeout 0.1-120 s, count 1-125; decode must be raw|uint16|int16|uint32|int32|float32 when set; "
+                "scale/offset must be numeric when present."
+            )
+        return n
+
 
 class PointUpdate(BaseModel):
     brick_type: Optional[str] = Field(None, max_length=128)
@@ -64,6 +85,27 @@ class PointUpdate(BaseModel):
     object_name: Optional[str] = Field(None, max_length=256)
     polling: Optional[bool] = None
     modbus_config: Optional[dict[str, Any]] = None
+
+    @field_validator("modbus_config")
+    @classmethod
+    def _validate_modbus_config_update(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if not isinstance(v, dict):
+            raise ValueError("modbus_config must be a JSON object or null")
+        if len(v) == 0:
+            return v
+        from openfdd_stack.platform.modbus_point_config import normalize_modbus_config
+
+        n = normalize_modbus_config(v)
+        if n is None:
+            raise ValueError(
+                "Invalid modbus_config: require non-empty host, integer address (0-65535), "
+                "function holding or input; optional port 1-65535, unit_id 0-247, "
+                "timeout 0.1-120 s, count 1-125; decode must be raw|uint16|int16|uint32|int32|float32 when set; "
+                "scale/offset must be numeric when present."
+            )
+        return n
 
 
 class PointRead(BaseModel):

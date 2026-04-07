@@ -485,6 +485,21 @@ def test_points_create_with_modbus_config():
     assert data["modbus_config"]["address"] == 4000
 
 
+def test_points_create_invalid_modbus_config_422():
+    site_id = uuid4()
+    conn = _mock_conn(fetchone=None)
+    with _patch_db(conn):
+        r = client.post(
+            "/points",
+            json={
+                "site_id": str(site_id),
+                "external_id": "bad_modbus",
+                "modbus_config": {"host": "", "address": 0},
+            },
+        )
+    assert r.status_code == 422
+
+
 def test_points_get_404():
     conn = _mock_conn(fetchone=None)
     with _patch_db(conn):

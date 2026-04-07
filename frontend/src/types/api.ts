@@ -59,6 +59,20 @@ export interface Point {
   created_at: string;
 }
 
+/** PATCH /points/{id} — mirrors backend PointUpdate (all fields optional). */
+export type PointPatchBody = Partial<{
+  brick_type: string | null;
+  fdd_input: string | null;
+  unit: string | null;
+  description: string | null;
+  equipment_id: string | null;
+  bacnet_device_id: string | null;
+  object_identifier: string | null;
+  object_name: string | null;
+  polling: boolean | null;
+  modbus_config: Record<string, unknown> | null;
+}>;
+
 /** GET /timeseries/latest — latest reading per point (BACnet scraper / weather). */
 export interface TimeseriesLatestItem {
   point_id: string;

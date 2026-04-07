@@ -4,7 +4,9 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Network, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiFetch } from "@/lib/api";
 import { bacnetModbusReadRegisters, createPoint, type BacnetProxyResult } from "@/lib/crud-api";
+import type { Point } from "@/types/api";
 import { useSites } from "@/hooks/use-sites";
 import { BacnetProxyResultView } from "@/components/bacnet/BacnetProxyResultView";
 
@@ -151,11 +153,28 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
       const tmo = Math.min(60, Math.max(1, parseFloat(timeoutSec) || 5));
       const p = parseInt(port, 10) || 502;
       const u = parseInt(unitId, 10) || 1;
+      const existing = await queryClient.fetchQuery({
+        queryKey: ["points", sid],
+        queryFn: () => apiFetch<Point[]>(`/points?site_id=${encodeURIComponent(sid)}`),
+      });
+      const existingIds = new Set(existing.map((pt) => pt.external_id));
+      const seenInBatch = new Set<string>();
       const created: string[] = [];
       for (const r of rows) {
         const displayName = r.pointName.trim();
         const ext = toRuleExternalId(displayName);
         if (!ext) continue;
+        if (seenInBatch.has(ext)) {
+          throw new Error(
+            `Duplicate name in this form: two rows resolve to point id "${ext}". Change one of the names.`,
+          );
+        }
+        if (existingIds.has(ext)) {
+          throw new Error(
+            `Point "${ext}" already exists for this site. Change the name or edit the existing point on the Data model page.`,
+          );
+        }
+        seenInBatch.add(ext);
         const addr = parseInt(r.address.trim(), 10);
         if (!Number.isFinite(addr) || addr < 0) continue;
         const count = parseInt((r.count || "1").trim(), 10) || 1;
@@ -305,8 +324,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                   className="grid gap-2 border-b border-border/40 pb-3 last:border-0 last:pb-0 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
                 >
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">address</label>
+                    <label htmlFor={`modbus-client-address-${idx}`} className="mb-1 block text-xs text-muted-foreground">
+                      address
+                    </label>
                     <input
+                      id={`modbus-client-address-${idx}`}
                       className={`${monoClass} w-full`}
                       value={row.address}
                       onChange={(e) => {
@@ -317,8 +339,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">count</label>
+                    <label htmlFor={`modbus-client-count-${idx}`} className="mb-1 block text-xs text-muted-foreground">
+                      count
+                    </label>
                     <input
+                      id={`modbus-client-count-${idx}`}
                       className={`${fieldClass} w-full`}
                       value={row.count}
                       onChange={(e) => {
@@ -328,8 +353,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">function</label>
+                    <label htmlFor={`modbus-client-function-${idx}`} className="mb-1 block text-xs text-muted-foreground">
+                      function
+                    </label>
                     <select
+                      id={`modbus-client-function-${idx}`}
                       className={`${fieldClass} w-full`}
                       value={row.function}
                       onChange={(e) => {
@@ -342,8 +370,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">Decode</label>
+                    <label htmlFor={`modbus-client-decode-${idx}`} className="mb-1 block text-xs text-muted-foreground">
+                      Decode
+                    </label>
                     <select
+                      id={`modbus-client-decode-${idx}`}
                       className={`${fieldClass} w-full`}
                       value={row.decode}
                       onChange={(e) => {
@@ -370,8 +401,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">Point name</label>
+                    <label htmlFor={`modbus-client-point-name-${idx}`} className="mb-1 block text-xs text-muted-foreground">
+                      Point name
+                    </label>
                     <input
+                      id={`modbus-client-point-name-${idx}`}
                       className={`${fieldClass} w-full`}
                       placeholder="e.g. Main meter kW"
                       value={row.pointName}
@@ -391,8 +425,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                     ) : null}
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">Unit (optional)</label>
+                    <label htmlFor={`modbus-client-unit-${idx}`} className="mb-1 block text-xs text-muted-foreground">
+                      Unit (optional)
+                    </label>
                     <input
+                      id={`modbus-client-unit-${idx}`}
                       className={`${fieldClass} w-full`}
                       placeholder="e.g. kW, V"
                       value={row.unit}
@@ -404,9 +441,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                   </div>
                   <div className="flex items-end gap-2 xl:col-span-1">
                     <div className="min-w-0 flex-1">
-                      <label className="mb-1 block text-xs text-muted-foreground">scale / offset</label>
+                      <span className="mb-1 block text-xs text-muted-foreground">scale / offset</span>
                       <div className="flex gap-1">
                         <input
+                          id={`modbus-client-scale-${idx}`}
+                          aria-label={`Scale row ${idx + 1}`}
                           className={`${fieldClass} w-16`}
                           placeholder="×"
                           value={row.scale}
@@ -416,6 +455,8 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
                           }}
                         />
                         <input
+                          id={`modbus-client-offset-${idx}`}
+                          aria-label={`Offset row ${idx + 1}`}
                           className={`${fieldClass} w-16`}
                           placeholder="+"
                           value={row.offset}

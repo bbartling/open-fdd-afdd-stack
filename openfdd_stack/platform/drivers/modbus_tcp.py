@@ -17,6 +17,7 @@ import httpx
 from openfdd_stack.platform.bacnet_gateway_auth import bacnet_gateway_request_headers
 from openfdd_stack.platform.config import get_platform_settings
 from openfdd_stack.platform.database import get_conn
+from openfdd_stack.platform.modbus_point_config import normalize_modbus_config
 from openfdd_stack.platform.site_resolver import resolve_site_uuid
 
 logger = logging.getLogger("open_fdd.modbus")
@@ -36,7 +37,7 @@ def _reading_to_float(reading: dict[str, Any]) -> Optional[float]:
 
 
 def get_modbus_points_from_data_model(site_id: Optional[str] = None) -> list[dict[str, Any]]:
-    """Load points with modbus_config set and polling enabled."""
+    """Load points with modbus_config set and polling enabled (configs normalized)."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             if site_id:
@@ -67,18 +68,15 @@ def get_modbus_points_from_data_model(site_id: Optional[str] = None) -> list[dic
             rows = cur.fetchall()
     out: list[dict[str, Any]] = []
     for r in rows:
-        cfg = r["modbus_config"]
-        if not isinstance(cfg, dict):
+        raw = r["modbus_config"]
+        if not isinstance(raw, dict):
             continue
-        host = (cfg.get("host") or "").strip()
-        if not host:
-            continue
-        try:
-            addr = int(cfg["address"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        fn = str(cfg.get("function") or "holding").strip().lower()
-        if fn not in ("holding", "input"):
+        cfg = normalize_modbus_config(raw)
+        if cfg is None:
+            logger.warning(
+                "Skipping point %s: modbus_config failed validation/normalization",
+                r.get("external_id") or r.get("id"),
+            )
             continue
         out.append(
             {
@@ -93,21 +91,21 @@ def get_modbus_points_from_data_model(site_id: Optional[str] = None) -> list[dic
 
 def _group_key(cfg: dict[str, Any]) -> tuple[str, int, int, float]:
     host = (cfg.get("host") or "").strip()
-    port = int(cfg.get("port") or 502)
-    unit = int(cfg.get("unit_id") if cfg.get("unit_id") is not None else cfg.get("unit") or 1)
-    timeout = float(cfg.get("timeout") or 5.0)
+    port = int(cfg["port"])
+    unit = int(cfg["unit_id"])
+    timeout = float(cfg["timeout"])
     return (host, port, unit, timeout)
 
 
 def _register_payload(cfg: dict[str, Any]) -> dict[str, Any]:
     """Single register entry for diy-bacnet-server body."""
     addr = int(cfg["address"])
-    count = int(cfg.get("count") or 1)
-    fn = str(cfg.get("function") or "holding").strip().lower()
+    count = int(cfg["count"])
+    fn = str(cfg["function"])
     reg: dict[str, Any] = {
         "address": addr,
         "count": count,
-        "function": fn if fn in ("holding", "input") else "holding",
+        "function": fn,
     }
     if cfg.get("decode") is not None:
         reg["decode"] = cfg["decode"]
@@ -151,65 +149,70 @@ def run_modbus_scrape_data_model(
 
     ts = datetime.now(timezone.utc)
     errors: list[str] = []
+    pending_inserts: list[tuple[str, str, float]] = []
+
+    for gk, pairs in groups.items():
+        h, p, u = gk
+        timeout = min(120.0, max(5.0, timeouts.get(gk, 5.0)))
+        registers = [_register_payload(cfg) for _, cfg in pairs]
+        body = {
+            "host": h,
+            "port": p,
+            "unit_id": u,
+            "timeout": timeout,
+            "registers": registers,
+        }
+        try:
+            r = httpx.post(
+                f"{url}/modbus/read_registers",
+                json=body,
+                timeout=timeout + 15.0,
+                headers=bacnet_gateway_request_headers(),
+            )
+            if not r.is_success:
+                errors.append(f"{h}:{p} unit {u}: HTTP {r.status_code}")
+                continue
+            data = r.json()
+        except Exception as e:
+            errors.append(f"{h}:{p} unit {u}: {e}")
+            continue
+
+        readings = data.get("readings") if isinstance(data, dict) else None
+        if not isinstance(readings, list) or len(readings) != len(pairs):
+            errors.append(
+                f"{h}:{p} unit {u}: unexpected readings count "
+                f"(got {len(readings) if isinstance(readings, list) else 0}, want {len(pairs)})"
+            )
+            continue
+
+        for i, (row, _cfg) in enumerate(pairs):
+            rid = readings[i]
+            if not isinstance(rid, dict) or not rid.get("success"):
+                errors.append(
+                    f"Point {row['external_id']}: {rid.get('error') if isinstance(rid, dict) else 'read failed'}"
+                )
+                continue
+            val = _reading_to_float(rid)
+            if val is None:
+                errors.append(f"Point {row['external_id']}: no numeric value")
+                continue
+            site_uuid = resolve_site_uuid(row["site_id"])
+            if not site_uuid:
+                errors.append(f"Point {row['external_id']}: unknown site")
+                continue
+            pending_inserts.append((str(site_uuid), str(row["id"]), val))
+
     rows_inserted = 0
-
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            for gk, pairs in groups.items():
-                h, p, u = gk
-                timeout = min(120.0, max(5.0, timeouts.get(gk, 5.0)))
-                registers = [_register_payload(cfg) for _, cfg in pairs]
-                body = {
-                    "host": h,
-                    "port": p,
-                    "unit_id": u,
-                    "timeout": timeout,
-                    "registers": registers,
-                }
-                try:
-                    r = httpx.post(
-                        f"{url}/modbus/read_registers",
-                        json=body,
-                        timeout=timeout + 15.0,
-                        headers=bacnet_gateway_request_headers(),
-                    )
-                    if not r.is_success:
-                        errors.append(f"{h}:{p} unit {u}: HTTP {r.status_code}")
-                        continue
-                    data = r.json()
-                except Exception as e:
-                    errors.append(f"{h}:{p} unit {u}: {e}")
-                    continue
-
-                readings = data.get("readings") if isinstance(data, dict) else None
-                if not isinstance(readings, list) or len(readings) != len(pairs):
-                    errors.append(
-                        f"{h}:{p} unit {u}: unexpected readings count "
-                        f"(got {len(readings) if isinstance(readings, list) else 0}, want {len(pairs)})"
-                    )
-                    continue
-
-                for i, (row, cfg) in enumerate(pairs):
-                    rid = readings[i]
-                    if not isinstance(rid, dict) or not rid.get("success"):
-                        errors.append(
-                            f"Point {row['external_id']}: {rid.get('error') if isinstance(rid, dict) else 'read failed'}"
-                        )
-                        continue
-                    val = _reading_to_float(rid)
-                    if val is None:
-                        errors.append(f"Point {row['external_id']}: no numeric value")
-                        continue
-                    site_uuid = resolve_site_uuid(row["site_id"])
-                    if not site_uuid:
-                        errors.append(f"Point {row['external_id']}: unknown site")
-                        continue
+    if pending_inserts:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                for site_uuid_str, point_id_str, val in pending_inserts:
                     cur.execute(
                         """
                         INSERT INTO timeseries_readings (ts, site_id, point_id, value)
                         VALUES (%s, %s, %s, %s)
                         """,
-                        (ts, str(site_uuid), str(row["id"]), val),
+                        (ts, site_uuid_str, point_id_str, val),
                     )
                     rows_inserted += 1
             conn.commit()

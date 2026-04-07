@@ -5,6 +5,7 @@ import type {
   DataModelImportResponse,
   PlatformConfig,
   Point,
+  PointPatchBody,
   Site,
 } from "@/types/api";
 
@@ -115,11 +116,8 @@ export function createPoint(body: PointCreateBody): Promise<Point> {
   });
 }
 
-/** PATCH a point (e.g. polling or Modbus spec). */
-export function updatePoint(
-  pointId: string,
-  body: { polling?: boolean; modbus_config?: Record<string, unknown> | null },
-): Promise<Point> {
+/** PATCH a point — any subset of PointPatchBody (matches backend PointUpdate). */
+export function updatePoint(pointId: string, body: PointPatchBody): Promise<Point> {
   return apiFetch<Point>(`/points/${pointId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

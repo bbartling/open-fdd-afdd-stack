@@ -1470,38 +1470,38 @@ verify_code() {
 
   # Caddy is validated only when interface layer is expected.
   if [[ "$MODE" != "collector" && "$MODE" != "engine" ]]; then
-  if [[ "$SKIP_DOCKER_FOR_TESTS" -eq 1 ]]; then
-    echo "--- Caddy: skip (Docker not available — run with Docker to validate Caddyfiles) ---"
-    echo ""
-  else
-  echo "--- Caddy (validate Caddyfile) ---"
-  if docker run --rm -v "$STACK_DIR/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 caddy validate --config /etc/caddy/Caddyfile; then
-    echo "Caddy: OK (default Caddyfile)"
-  else
-    echo "Caddy: FAIL (Caddyfile invalid or docker unavailable)"
-    failed=1
-  fi
-  if [[ -f "$STACK_DIR/caddy/Caddyfile.selfsigned" ]] && have_cmd openssl; then
-    local tmpc
-    tmpc="$(mktemp -d)"
-    if openssl req -x509 -newkey rsa:2048 -keyout "$tmpc/key.pem" -out "$tmpc/cert.pem" -days 1 -nodes \
-      -subj "/CN=validate.local" -addext "subjectAltName=DNS:localhost" 2>/dev/null \
-      || openssl req -x509 -newkey rsa:2048 -keyout "$tmpc/key.pem" -out "$tmpc/cert.pem" -days 1 -nodes \
-        -subj "/CN=validate.local"; then
-      if docker run --rm \
-        -v "$STACK_DIR/caddy/Caddyfile.selfsigned:/etc/caddy/Caddyfile:ro" \
-        -v "$tmpc:/etc/caddy/certs:ro" \
-        caddy:2 caddy validate --config /etc/caddy/Caddyfile; then
-        echo "Caddy: OK (Caddyfile.selfsigned + dummy certs)"
+    if [[ "$SKIP_DOCKER_FOR_TESTS" -eq 1 ]]; then
+      echo "--- Caddy: skip (Docker not available — run with Docker to validate Caddyfiles) ---"
+      echo ""
+    else
+      echo "--- Caddy (validate Caddyfile) ---"
+      if docker run --rm -v "$STACK_DIR/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 caddy validate --config /etc/caddy/Caddyfile; then
+        echo "Caddy: OK (default Caddyfile)"
       else
-        echo "Caddy: FAIL (Caddyfile.selfsigned invalid or docker unavailable)"
+        echo "Caddy: FAIL (Caddyfile invalid or docker unavailable)"
         failed=1
       fi
+      if [[ -f "$STACK_DIR/caddy/Caddyfile.selfsigned" ]] && have_cmd openssl; then
+        local tmpc
+        tmpc="$(mktemp -d)"
+        if openssl req -x509 -newkey rsa:2048 -keyout "$tmpc/key.pem" -out "$tmpc/cert.pem" -days 1 -nodes \
+          -subj "/CN=validate.local" -addext "subjectAltName=DNS:localhost" 2>/dev/null \
+          || openssl req -x509 -newkey rsa:2048 -keyout "$tmpc/key.pem" -out "$tmpc/cert.pem" -days 1 -nodes \
+            -subj "/CN=validate.local"; then
+          if docker run --rm \
+            -v "$STACK_DIR/caddy/Caddyfile.selfsigned:/etc/caddy/Caddyfile:ro" \
+            -v "$tmpc:/etc/caddy/certs:ro" \
+            caddy:2 caddy validate --config /etc/caddy/Caddyfile; then
+            echo "Caddy: OK (Caddyfile.selfsigned + dummy certs)"
+          else
+            echo "Caddy: FAIL (Caddyfile.selfsigned invalid or docker unavailable)"
+            failed=1
+          fi
+        fi
+        rm -rf "$tmpc"
+      fi
+      echo ""
     fi
-    rm -rf "$tmpc"
-  fi
-  echo ""
-  fi
   fi
 
   if [[ $failed -eq 0 ]]; then

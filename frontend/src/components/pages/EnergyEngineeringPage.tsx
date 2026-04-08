@@ -270,24 +270,38 @@ function defaultsFromFields(fields: EnergyCalcFieldSpec[]): Record<string, strin
   return o;
 }
 
-function buildParametersFromForm(
-  fields: EnergyCalcFieldSpec[],
-  raw: Record<string, string>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+type BuildParametersResult = {
+  parameters: Record<string, unknown>;
+  /** Field keys with invalid float text (non-empty but not parseable as a number). */
+  errors: Record<string, string>;
+};
+
+function buildParametersFromForm(fields: EnergyCalcFieldSpec[], raw: Record<string, string>): BuildParametersResult {
+  const parameters: Record<string, unknown> = {};
+  const errors: Record<string, string> = {};
   for (const f of fields) {
     const v = raw[f.key]?.trim() ?? "";
     if (v === "") continue;
     if (f.type === "float") {
       const n = Number(v);
-      if (!Number.isNaN(n)) out[f.key] = n;
+      if (Number.isNaN(n)) errors[f.key] = "Enter a valid number.";
+      else parameters[f.key] = n;
     } else if (f.type === "enum") {
-      out[f.key] = v;
+      parameters[f.key] = v;
     } else {
-      out[f.key] = v;
+      parameters[f.key] = v;
     }
   }
-  return out;
+  return { parameters, errors };
+}
+
+function assertNoParamErrors(result: BuildParametersResult): Record<string, unknown> {
+  if (Object.keys(result.errors).length === 0) return result.parameters;
+  const err = new Error("Invalid numeric parameter values.") as Error & {
+    paramFieldErrors: Record<string, string>;
+  };
+  err.paramFieldErrors = result.errors;
+  throw err;
 }
 
 function DeleteEnergyCalcDialog({
@@ -400,6 +414,7 @@ function EnergyCalculationWorkbench() {
   const [pointBindingsText, setPointBindingsText] = useState("{}");
   const [preview, setPreview] = useState<EnergyPreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [paramFieldErrors, setParamFieldErrors] = useState<Record<string, string>>({});
 
   const effectiveCalcTypeId = useMemo(() => {
     if (!calcTypes.length) return "";
@@ -424,6 +439,7 @@ function EnergyCalculationWorkbench() {
       if (spec) setParamValues(defaultsFromFields(spec.fields));
       setPreview(null);
       setPreviewError(null);
+      setParamFieldErrors({});
     },
     [calcTypes],
   );
@@ -437,16 +453,25 @@ function EnergyCalculationWorkbench() {
   const previewMut = useMutation({
     mutationFn: async () => {
       if (!activeSpec) throw new Error("No calculation type selected.");
-      const parameters = buildParametersFromForm(activeSpec.fields, mergedParamValues);
+      const built = buildParametersFromForm(activeSpec.fields, mergedParamValues);
+      const parameters = assertNoParamErrors(built);
       return previewEnergyCalculation(effectiveCalcTypeId, parameters);
     },
     onSuccess: (data) => {
       setPreview(data);
       setPreviewError(null);
+      setParamFieldErrors({});
     },
     onError: (e: Error) => {
       setPreview(null);
-      setPreviewError(e.message);
+      const pe = (e as Error & { paramFieldErrors?: Record<string, string> }).paramFieldErrors;
+      if (pe && Object.keys(pe).length > 0) {
+        setParamFieldErrors(pe);
+        setPreviewError("Fix invalid numbers in the highlighted fields.");
+      } else {
+        setParamFieldErrors({});
+        setPreviewError(e.message);
+      }
     },
   });
 
@@ -467,7 +492,7 @@ function EnergyCalculationWorkbench() {
         }
         throw e;
       }
-      const parameters = buildParametersFromForm(activeSpec.fields, mergedParamValues);
+      const parameters = assertNoParamErrors(buildParametersFromForm(activeSpec.fields, mergedParamValues));
       const ext = externalId.trim() || slugFromName(name);
       if (!ext) throw new Error("Name or external id is required.");
       const body = {
@@ -490,6 +515,12 @@ function EnergyCalculationWorkbench() {
       setDescription("");
       setExternalId("");
       setPreview(null);
+      setParamFieldErrors({});
+    },
+    onError: (e: Error) => {
+      const pe = (e as Error & { paramFieldErrors?: Record<string, string> }).paramFieldErrors;
+      if (pe && Object.keys(pe).length > 0) setParamFieldErrors(pe);
+      else setParamFieldErrors({});
     },
   });
 
@@ -539,8 +570,8 @@ function EnergyCalculationWorkbench() {
         <CardHeader className="pb-2">
           <CardTitle className="text-lg">Calculations by equipment</CardTitle>
           <p className="text-xs font-normal text-muted-foreground">
-            Tree matches site equipment; site-level calcs are not tied to a device. Right-click a row for Enable, Disable,
-            or Delete (same idea as the Points page).
+            Tree matches site equipment; site-level calcs are not tied to a device. Use the row actions menu (⋮) or
+            right-click a row for Enable, Disable, or Delete (same idea as the Points page).
           </p>
         </CardHeader>
         <CardContent>
@@ -703,9 +734,26 @@ function EnergyCalculationWorkbench() {
                       type="text"
                       inputMode="decimal"
                       value={mergedParamValues[f.key] ?? ""}
-                      onChange={(e) => setParamValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                      className="h-9 w-full rounded-lg border border-border/60 bg-background px-3 text-sm font-mono"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setParamValues((prev) => ({ ...prev, [f.key]: v }));
+                        if (f.type === "float") {
+                          setParamFieldErrors((prev) => {
+                            if (!prev[f.key]) return prev;
+                            const next = { ...prev };
+                            delete next[f.key];
+                            return next;
+                          });
+                        }
+                      }}
+                      aria-invalid={Boolean(paramFieldErrors[f.key])}
+                      className={`h-9 w-full rounded-lg border bg-background px-3 text-sm font-mono ${
+                        paramFieldErrors[f.key] ? "border-destructive" : "border-border/60"
+                      }`}
                     />
+                    {paramFieldErrors[f.key] ? (
+                      <span className="mt-1 block text-xs text-destructive">{paramFieldErrors[f.key]}</span>
+                    ) : null}
                   </label>
                 );
               })}
@@ -778,9 +826,47 @@ export function EnergyEngineeringPage() {
         building&apos;s model; use equipment metadata when you need nameplate fields and topology export.
       </p>
 
-      <div className="mb-6 flex flex-wrap gap-2 border-b border-border/60 pb-2">
+      <div
+        role="tablist"
+        aria-label="Energy engineering sections"
+        className="mb-6 flex flex-wrap gap-2 border-b border-border/60 pb-2"
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight") {
+            e.preventDefault();
+            if (tab === "energy") {
+              setTab("metadata");
+              queueMicrotask(() => document.getElementById("tab-metadata")?.focus());
+            } else {
+              setTab("energy");
+              queueMicrotask(() => document.getElementById("tab-energy")?.focus());
+            }
+          } else if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            if (tab === "metadata") {
+              setTab("energy");
+              queueMicrotask(() => document.getElementById("tab-energy")?.focus());
+            } else {
+              setTab("metadata");
+              queueMicrotask(() => document.getElementById("tab-metadata")?.focus());
+            }
+          } else if (e.key === "Home") {
+            e.preventDefault();
+            setTab("energy");
+            queueMicrotask(() => document.getElementById("tab-energy")?.focus());
+          } else if (e.key === "End") {
+            e.preventDefault();
+            setTab("metadata");
+            queueMicrotask(() => document.getElementById("tab-metadata")?.focus());
+          }
+        }}
+      >
         <button
           type="button"
+          role="tab"
+          id="tab-energy"
+          aria-selected={tab === "energy"}
+          aria-controls="panel-energy"
+          tabIndex={tab === "energy" ? 0 : -1}
           onClick={() => setTab("energy")}
           className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
             tab === "energy" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60"
@@ -790,6 +876,11 @@ export function EnergyEngineeringPage() {
         </button>
         <button
           type="button"
+          role="tab"
+          id="tab-metadata"
+          aria-selected={tab === "metadata"}
+          aria-controls="panel-metadata"
+          tabIndex={tab === "metadata" ? 0 : -1}
           onClick={() => setTab("metadata")}
           className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
             tab === "metadata" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60"
@@ -799,7 +890,26 @@ export function EnergyEngineeringPage() {
         </button>
       </div>
 
-      {tab === "energy" ? <EnergyCalculationWorkbench /> : <EquipmentMetadataTab />}
+      <div
+        id="panel-energy"
+        role="tabpanel"
+        aria-labelledby="tab-energy"
+        hidden={tab !== "energy"}
+        tabIndex={0}
+        className="outline-none"
+      >
+        {tab === "energy" ? <EnergyCalculationWorkbench /> : null}
+      </div>
+      <div
+        id="panel-metadata"
+        role="tabpanel"
+        aria-labelledby="tab-metadata"
+        hidden={tab !== "metadata"}
+        tabIndex={0}
+        className="outline-none"
+      >
+        {tab === "metadata" ? <EquipmentMetadataTab /> : null}
+      </div>
     </div>
   );
 }

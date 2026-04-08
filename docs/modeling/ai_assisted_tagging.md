@@ -77,7 +77,7 @@ See [LLM workflow (export + rules + validate → import)](llm_workflow) for the 
 ## See also
 
 - [LLM workflow](llm_workflow) — One prompt + export JSON + optional rules; validate with schema/Pydantic; then import and run FDD/tests.
-- [AI-assisted energy calculations](ai_assisted_energy_calculations) — **Next phase:** export/import JSON for site-scoped savings specs (`calc_types` + `energy_calculations`) after points and equipment exist.
+- [AI-assisted energy calculations](ai_assisted_energy_calculations) — **Next phase:** export/import JSON for site-scoped savings specs (`calc_types` + `energy_calculations`) after points and equipment exist. For **human-edited** nameplate / sizing fields (parallel to `equipment[].engineering` on import), use **Energy Engineering → Equipment metadata** in the UI or keep engineering in the same import JSON per [Data model engineering](../howto/data_model_engineering).
 - [Data model overview](overview) — Flow (DB → TTL → FDD)
 
 ---

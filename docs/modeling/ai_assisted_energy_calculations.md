@@ -57,7 +57,7 @@ Each row:
 | `name` | yes | Human label. |
 | `calc_type` | yes | Must be one of the `calc_types[].id` values from the export. |
 | `parameters` | no | Object; keys must match the `fields[].key` for that `calc_type`. Use numeric JSON numbers for floats. |
-| `point_bindings` | no | Map **semantic keys** (e.g. `cfm`, `kw`) to **point `external_id`** strings for documentation / future trend tie-in — not consumed by the preview library yet, but stored and exported to TTL. |
+| `point_bindings` | no | **Object** mapping **semantic keys** (e.g. `cfm`, `kw`) to **point `external_id`** strings. Must be a JSON object (not `[]` or a primitive); omit or use `{}` if empty. Stored and exported to TTL; preview library may not consume every binding yet. |
 | `enabled` | no | Default `true`. |
 | `equipment_id` | no | UUID of equipment on this site. |
 | `equipment_name` | no | Alternative to `equipment_id`: resolved under `site_id`. Fails with 400 if the name does not exist — **create equipment on Data Model BRICK first**. |
@@ -97,7 +97,7 @@ Rules:
 - calc_type MUST be one of calc_types[].id from the export.
 - parameters MUST use only keys listed in calc_types[].fields for that calc_type. Use JSON numbers for numeric fields.
 - Use equipment_name (string) to attach a calc to equipment when the export lists equipment names from the data model; use null equipment_id/equipment_name only for site-level calcs.
-- point_bindings: optional object mapping semantic keys to point external_id strings from the data model (e.g. { "cfm": "OA_FLOW_SCFM" }). Only reference external_ids that exist in the user's data model export if they provided one.
+- point_bindings: optional **JSON object** (not an array or null as the value) mapping semantic keys to point **external_id** strings from the data model (e.g. `{ "cfm": "OA_FLOW_SCFM" }`). Use `{}` or omit the key if there are no bindings. Only reference external_ids that exist in the user's data model export if they provided one.
 - For annualized / M&V style estimates, use hours and rates consistent with the field labels in calc_types (e.g. hours_fault, electric_rate_per_kwh).
 - If job context is missing (which faults, which equipment), prefer conservative parameters or ask a short clarifying question in plain language WITHOUT emitting JSON in that turn.
 
@@ -114,9 +114,9 @@ When returning JSON, the object must parse as Open-FDD PUT /energy-calculations/
 
 ---
 
-## UI: tree and context menu
+## UI: tree and row actions
 
-On **Energy Engineering** (Energy calculations tab), calculations appear under **Site-level** or under each **equipment** node. **Right-click** a calculation row for **Enable**, **Disable**, or **Delete** (same interaction model as **Points**).
+On **Energy Engineering** (Energy calculations tab), calculations appear under **Site-level** or under each **equipment** node. Use the **row actions** control (⋮) for **Enable**, **Disable**, or **Delete**, or **right-click** the row (same interaction model as **Points**). The **Equipment metadata** tab edits per-equipment engineering fields that feed the penalty catalog and TTL (`equipment.metadata.engineering`); align with [Data model engineering](../howto/data_model_engineering).
 
 ---
 
@@ -126,4 +126,4 @@ On **Energy Engineering** (Energy calculations tab), calculations appear under *
 - [LLM workflow](llm_workflow) — Canonical data-model prompt and validation habits.
 - [Default FDD energy penalty catalog](energy_penalty_equations) — 18 seeded templates, TTL `ofdd:penaltyCatalogSeq`, Open-Meteo / rates notes.
 - [Data model engineering](../howto/data_model_engineering) — Equipment `engineering` metadata and TTL / SPARQL.
-- [Frontend — Energy Engineering](../frontend#energy-engineering) — Tree, seed defaults, right-click, export/import buttons.
+- [Frontend — Energy Engineering](../frontend#energy-engineering) — Tree, seed defaults, row actions / context menu, export/import buttons, Equipment metadata tab.

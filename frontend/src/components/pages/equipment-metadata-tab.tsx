@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSiteContext } from "@/contexts/site-context";
@@ -167,6 +167,15 @@ export function EquipmentMetadataTab() {
       equipment[0]
     );
   }, [equipment, selectedEquipmentId]);
+
+  useEffect(() => {
+    if (!equipment.length) return;
+    const valid = equipment.some((e) => e.id === selectedEquipmentId);
+    if (!selectedEquipmentId || !valid) {
+      setSelectedEquipmentId(equipment[0].id);
+    }
+  }, [equipment, selectedEquipmentId]);
+
   const [saveMsg, setSaveMsg] = useState<string>("");
 
   const hasBacnet = useMemo(() => {

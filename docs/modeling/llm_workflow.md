@@ -331,6 +331,7 @@ Use this for **nameplate / submittal** style fields (design CFM, cooling/heating
 
 - **Docs:** [Data model engineering (Brick + 223P MVP)](../howto/data_model_engineering)
 - **Example import:** `examples/223P_engineering/engineering_import_example.json`
+- **UI:** **Energy Engineering → Equipment metadata** edits the same `equipment.metadata.engineering` store (and optional topology JSON) without a separate import round-trip when you prefer forms over LLM JSON.
 
 The canonical prompt tells the LLM to **only** fill or change engineering when the operator supplies evidence — not to invent tons, HP, or CFM from BACnet names alone.
 

@@ -167,6 +167,7 @@ def main() -> int:
 
     from openfdd_stack.platform.config import get_platform_settings
     from openfdd_stack.platform.drivers.bacnet import run_bacnet_scrape_data_model
+    from openfdd_stack.platform.drivers.modbus_tcp import run_modbus_scrape_data_model
 
     settings = get_platform_settings()
 
@@ -250,6 +251,24 @@ def main() -> int:
                     result.get("points_created", 0),
                 )
 
+                try:
+                    mres = run_modbus_scrape_data_model(
+                        site_id=data_model_site, server_url=url
+                    )
+                    mr = mres.get("rows_inserted", 0)
+                    total_rows += mr
+                    me = mres.get("errors") or []
+                    total_errors += len(me)
+                    if mr or me:
+                        log.info(
+                            "Gateway %s Modbus: %d readings, %d errors",
+                            site_label,
+                            mr,
+                            len(me),
+                        )
+                except Exception:
+                    log.exception("Gateway %s Modbus scrape failed", site_label)
+
             if not args.loop:
                 if (
                     args.exit_nonzero_on_empty
@@ -278,9 +297,19 @@ def main() -> int:
 
     def _run_single() -> dict:
         data_model_site = None if site_id == "default" else site_id
-        return run_bacnet_scrape_data_model(
+        b = run_bacnet_scrape_data_model(
             site_id=data_model_site, server_url=settings.bacnet_server_url
         )
+        m = run_modbus_scrape_data_model(
+            site_id=data_model_site, server_url=settings.bacnet_server_url
+        )
+        errs = list(b.get("errors") or []) + list(m.get("errors") or [])
+        return {
+            "rows_inserted": int(b.get("rows_inserted", 0))
+            + int(m.get("rows_inserted", 0)),
+            "points_created": b.get("points_created", 0),
+            "errors": errs,
+        }
 
     if args.loop:
         interval_min = _current_interval_min(log)

@@ -5,6 +5,7 @@ import { Network, Loader2, Wrench, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BacnetDiscoveryPanel } from "@/components/site/BacnetDiscoveryPanel";
 import { SitesSetupCard } from "@/components/site/SitesSetupCard";
+import { ModbusClientPanel } from "@/components/bacnet/ModbusClientPanel";
 import {
   bacnetGateways,
   bacnetReadProperty,
@@ -60,6 +61,7 @@ function GatewaySelect({
 }
 
 export function BacnetToolsPage() {
+  const [section, setSection] = useState<"bacnet" | "modbus">("bacnet");
   const { data: gateways = [] } = useQuery({
     queryKey: ["bacnet", "gateways"],
     queryFn: bacnetGateways,
@@ -261,9 +263,9 @@ export function BacnetToolsPage() {
         BACnet tools
       </h1>
       <p className="mb-6 max-w-3xl text-sm text-muted-foreground">
-        Start with <strong>Step 1 — Sites</strong>, then <strong>Step 2 — BACnet discovery</strong> (Who-Is, point discovery, Add
-        to data model). The gateway API key stays on the server. When you are ready to export JSON, import tagged points, or run
-        SPARQL, use the{" "}
+        Start with <strong>Step 1 — Sites</strong>, then either <strong>Step 2 — BACnet discovery</strong> or the{" "}
+        <strong>Modbus client</strong> tab for Modbus TCP via the same gateway. The gateway API key stays on the server. When you
+        are ready to export JSON, import tagged points, or run SPARQL, use the{" "}
         <Link to="/data-model" className="font-medium text-primary underline-offset-4 hover:underline">
           Data model
         </Link>{" "}
@@ -275,6 +277,59 @@ export function BacnetToolsPage() {
       )}
 
       <SitesSetupCard className="mb-6" />
+
+      <div className="mb-4 flex flex-wrap gap-2 border-b border-border/60 pb-3" role="tablist" aria-label="Gateway tool sections">
+        <button
+          id="tab-bacnet-tools-bacnet"
+          type="button"
+          role="tab"
+          aria-selected={section === "bacnet"}
+          aria-controls="bacnet-tools-panel-bacnet"
+          onClick={() => setSection("bacnet")}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            section === "bacnet"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-muted/60"
+          }`}
+          data-testid="bacnet-tools-section-bacnet"
+        >
+          BACnet
+        </button>
+        <button
+          id="tab-bacnet-tools-modbus"
+          type="button"
+          role="tab"
+          aria-selected={section === "modbus"}
+          aria-controls="bacnet-tools-panel-modbus"
+          onClick={() => setSection("modbus")}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            section === "modbus"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-muted/60"
+          }`}
+          data-testid="bacnet-tools-section-modbus"
+        >
+          Modbus client
+        </button>
+      </div>
+
+      <div
+        id="bacnet-tools-panel-modbus"
+        role="tabpanel"
+        aria-labelledby="tab-bacnet-tools-modbus"
+        hidden={section !== "modbus"}
+        className={section !== "modbus" ? "hidden" : undefined}
+      >
+        <ModbusClientPanel gateway={gateway} />
+      </div>
+
+      <div
+        id="bacnet-tools-panel-bacnet"
+        role="tabpanel"
+        aria-labelledby="tab-bacnet-tools-bacnet"
+        hidden={section !== "bacnet"}
+        className={section !== "bacnet" ? "hidden" : undefined}
+      >
       <BacnetDiscoveryPanel />
 
       <h2 className="mb-2 mt-10 text-lg font-semibold tracking-tight">Optional BACnet tools</h2>
@@ -646,6 +701,7 @@ export function BacnetToolsPage() {
           />
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

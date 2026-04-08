@@ -673,6 +673,82 @@ def bacnet_read_point_priority_array(
     )
 
 
+MODBUS_READ_EXAMPLES = {
+    "meter": {
+        "summary": "Two registers (holding + input float)",
+        "value": {
+            "host": "10.200.200.170",
+            "port": 502,
+            "unit_id": 1,
+            "timeout": 5.0,
+            "registers": [
+                {
+                    "address": 184,
+                    "count": 1,
+                    "function": "holding",
+                    "decode": "uint16",
+                    "label": "SoC %",
+                },
+                {
+                    "address": 500,
+                    "count": 2,
+                    "function": "input",
+                    "decode": "float32",
+                    "label": "L1 V",
+                },
+            ],
+        },
+    }
+}
+
+
+@router.post(
+    "/modbus_read_registers",
+    summary="Proxy: Modbus TCP batch read (diy-bacnet-server /modbus/read_registers)",
+)
+def bacnet_modbus_read_registers(
+    body: dict = Body(..., examples=MODBUS_READ_EXAMPLES),
+    gateway: str | None = Query(
+        None,
+        description="Gateway id from GET /bacnet/gateways (same host as BACnet RPC).",
+        enum=GATEWAY_ID_ENUM,
+    ),
+):
+    """
+    Forward to the BACnet gateway container's **Modbus TCP** REST API (utility meters, eGauge, etc.).
+    Request/response shape matches diy-bacnet-server ``POST /modbus/read_registers``.
+    """
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "JSON object body required"}
+    url, gw_err = _bacnet_proxy_url_or_error({"url": body.get("url")}, gateway)
+    if gw_err:
+        return {"ok": False, "error": gw_err}
+    if not url.startswith("http"):
+        return {"ok": False, "error": "Invalid URL"}
+    url = _require_allowlisted_gateway_url(url)
+    timeout = float(body.get("timeout") or 5.0) + 20.0
+    timeout = min(120.0, max(10.0, timeout))
+    try:
+        fwd = {k: v for k, v in body.items() if k != "url"}
+        r = httpx.post(
+            f"{url.rstrip('/')}/modbus/read_registers",
+            json=fwd,
+            timeout=timeout,
+            headers=bacnet_gateway_request_headers(),
+        )
+        out: dict = {"ok": r.is_success, "status_code": r.status_code}
+        try:
+            out["body"] = r.json()
+        except Exception:
+            out["text"] = r.text
+        if not r.is_success:
+            out["error"] = r.text or f"HTTP {r.status_code}"
+        return out
+    except Exception as e:
+        logger.exception("modbus_read_registers proxy failed")
+        return {"ok": False, "error": str(e)}
+
+
 # --- Write point (HA/Node-RED write via Open-FDD; audit + events) ---
 
 

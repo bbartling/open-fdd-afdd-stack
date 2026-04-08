@@ -13,6 +13,7 @@ section after BACNET_SECTION_MARKER. CRUD and point_discovery_to_graph update th
 from __future__ import annotations
 
 import atexit
+import json
 import logging
 import threading
 from pathlib import Path
@@ -39,9 +40,16 @@ logger = logging.getLogger(__name__)
 
 
 def _escape(s: str) -> str:
+    """Escape for Turtle double-quoted literals (labels, comments, embedded JSON)."""
     if s is None:
         return ""
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        s.replace("\\", "\\\\")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+        .replace('"', '\\"')
+    )
 
 
 def _timeseries_store_uri() -> str:
@@ -69,6 +77,10 @@ def _append_point(lines: list[str], p: dict[str, Any], parent_uri: str) -> None:
     lines.append(f"{pt_uri} a brick:{brick_type} ;")
     lines.append(f'    rdfs:label "{label}" ;')
     lines.append(f"    ofdd:polling {'true' if polling else 'false'} ;")
+    mc = p.get("modbus_config")
+    if isinstance(mc, dict) and mc:
+        mc_json = json.dumps(mc, separators=(",", ":"), sort_keys=True)
+        lines.append(f'    ofdd:modbusConfig "{_escape(mc_json)}" ;')
     if p.get("unit"):
         lines.append(f'    ofdd:unit "{_escape(p["unit"])}" ;')
     bacnet_id = p.get("bacnet_device_id")
@@ -143,11 +155,19 @@ def build_ttl_from_db(site_id: UUID | None = None) -> str:
             equipment = cur.fetchall()
             cur.execute(
                 """SELECT id, site_id, external_id, brick_type, fdd_input, unit, equipment_id, COALESCE(polling, true) AS polling,
-                   bacnet_device_id, object_identifier, object_name
+                   bacnet_device_id, object_identifier, object_name, modbus_config
                    FROM points WHERE site_id = ANY(%s::uuid[]) ORDER BY site_id, external_id""",
                 (site_ids,),
             )
             points_rows = cur.fetchall()
+            cur.execute(
+                """SELECT id, site_id, equipment_id, external_id, name, description, calc_type,
+                          parameters, point_bindings, enabled
+                   FROM energy_calculations WHERE site_id = ANY(%s::uuid[])
+                   ORDER BY site_id, external_id""",
+                (site_ids,),
+            )
+            energy_rows = cur.fetchall()
 
     lines = [_prefixes()]
     eq_by_site: dict[str, list[dict]] = {}
@@ -163,6 +183,10 @@ def build_ttl_from_db(site_id: UUID | None = None) -> str:
             pts_by_eq.setdefault(str(eid), []).append(p)
         else:
             pts_orphan.setdefault(sid, []).append(p)
+
+    ec_by_site: dict[str, list[dict]] = {}
+    for ec in energy_rows:
+        ec_by_site.setdefault(str(ec["site_id"]), []).append(ec)
 
     for site in sites:
         sid = str(site["id"])
@@ -213,7 +237,45 @@ def build_ttl_from_db(site_id: UUID | None = None) -> str:
                 _append_point(lines, p, oref)
             lines.append("")
 
+        for ec in ec_by_site.get(sid, []):
+            _append_energy_calculation(lines, ec, sref)
+
     return "\n".join(lines)
+
+
+def _append_energy_calculation(
+    lines: list[str], ec: dict[str, Any], site_ref: str
+) -> None:
+    """Emit FDD energy / savings calc spec for SPARQL and knowledge-graph export."""
+    eid = str(ec["id"]).replace("-", "_")
+    uri = f":ec_{eid}"
+    label = _escape((ec.get("name") or ec.get("external_id") or "calc"))
+    lines.append(f"{uri} a ofdd:EnergyCalculation ;")
+    lines.append(f'    rdfs:label "{label}" ;')
+    lines.append(f'    ofdd:calcExternalId "{_escape(str(ec.get("external_id") or ""))}" ;')
+    lines.append(f'    ofdd:calcType "{_escape(str(ec.get("calc_type") or ""))}" ;')
+    lines.append(f"    ofdd:calcEnabled {'true' if ec.get('enabled', True) else 'false'} ;")
+    desc = ec.get("description")
+    if desc is not None and str(desc).strip():
+        lines.append(f'    rdfs:comment "{_escape(str(desc).strip())}" ;')
+    params = ec.get("parameters") if isinstance(ec.get("parameters"), dict) else {}
+    seq = params.get("_penalty_catalog_seq")
+    if seq is not None:
+        try:
+            lines.append(f'    ofdd:penaltyCatalogSeq {int(seq)} ;')
+        except (TypeError, ValueError):
+            pass
+    pj = json.dumps(params, separators=(",", ":"), sort_keys=True)
+    lines.append(f'    ofdd:calcParameters "{_escape(pj)}" ;')
+    binds = ec.get("point_bindings") if isinstance(ec.get("point_bindings"), dict) else {}
+    bj = json.dumps(binds, separators=(",", ":"), sort_keys=True)
+    lines.append(f'    ofdd:calcPointBindings "{_escape(bj)}" ;')
+    eq_id = ec.get("equipment_id")
+    if eq_id:
+        eref = f":eq_{str(eq_id).replace('-', '_')}"
+        lines.append(f"    ofdd:forEquipment {eref} ;")
+    lines.append(f"    brick:isPartOf {site_ref} .")
+    lines.append("")
 
 
 def _append_equipment_engineering(

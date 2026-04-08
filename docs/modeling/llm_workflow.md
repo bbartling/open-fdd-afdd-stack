@@ -8,6 +8,8 @@ nav_order: 5
 
 This page describes a **single upload** workflow for mechanical engineers: send the **canonical prompt**, the **data-model export JSON**, and **fault/rule context** (strongly recommended) to an LLM; get back import-ready JSON; **validate** it so you know it will parse on the Open-FDD backend; then **PUT /data-model/import** and run FDD (or Sparkl/tests) as needed.
 
+**After the data model is stable:** use **[AI-assisted energy calculations](ai_assisted_energy_calculations)** for phase two — `GET /energy-calculations/export?site_id=…` (bundle includes **`calc_types`**, **`penalty_catalog`** (18 default narratives), and `energy_calculations`), LLM-authored or operator-edited rows, then `PUT /energy-calculations/import`. Optionally **[seed default penalty rows](energy_penalty_equations)** first. Same site-scoping rules as points and equipment.
+
 **Best practice:** Decide **which Open-FDD faults and rules** you will run *before* finalizing `polling`. The canonical prompt is **fault-first**: it tells the model to gather job context (faults, YAML, units, production vs bench, weather scope) or to stay conservative on polling until that context exists.
 
 > **Automated path available:** External OpenAI-compatible agents (for example Open‑Claw) can automate the same flow by calling `GET /data-model/export`, fetching platform documentation context from `GET /model-context/docs`, and then calling `PUT /data-model/import` with validated import JSON. The manual copy-paste workflow below always works too.
@@ -329,6 +331,7 @@ Use this for **nameplate / submittal** style fields (design CFM, cooling/heating
 
 - **Docs:** [Data model engineering (Brick + 223P MVP)](../howto/data_model_engineering)
 - **Example import:** `examples/223P_engineering/engineering_import_example.json`
+- **UI:** **Energy Engineering → Equipment metadata** edits the same `equipment.metadata.engineering` store (and optional topology JSON) without a separate import round-trip when you prefer forms over LLM JSON.
 
 The canonical prompt tells the LLM to **only** fill or change engineering when the operator supplies evidence — not to invent tons, HP, or CFM from BACnet names alone.
 

@@ -28,6 +28,8 @@ Each point has:
 | `bacnet_device_id` | Optional. BACnet device instance (e.g. `3456789`). With `object_identifier`, used by the BACnet scraper to poll this point. |
 | `object_identifier` | Optional. BACnet object ID (e.g. `analog-input,1`). |
 | `object_name` | Optional. BACnet object name (often same as `external_id`). |
+| **Modbus TCP** | |
+| `modbus_config` | Optional JSON object. When set (non-empty), the **Modbus** scrape step reads this point via the BACnet gateway’s `POST /modbus/read_registers`. Typical fields: `host`, `port`, `unit_id`, `timeout`, `address`, `count`, `function` (`holding` or `input`), optional `decode`, `scale`, `offset`, `label`. Same scrape enable flag and interval as BACnet (`OFDD_BACNET_SCRAPE_ENABLED`, `bacnet_scrape_interval_min` / API config). Serialized in Brick TTL as `ofdd:modbusConfig` (JSON string). |
 
 ---
 
@@ -48,6 +50,7 @@ TimescaleDB hypertable, optimized for range scans and downsampling.
 ## Layers and mapping
 
 - **BACnet layer:** Points that have `bacnet_device_id` and `object_identifier` are scraped by the BACnet driver (data-model path). Add them via CRUD or after **POST /bacnet/point_discovery_to_graph** and data-model export/import. `external_id` is typically the BACnet object name.
+- **Modbus layer:** Points with `modbus_config` set are read in the same scrape loop (after BACnet), using the configured gateway URL. Add them via **POST /points**, the **Modbus client** tab on **BACnet tools**, or **PUT /data-model/import** with `modbus_config` (requires `site_id`/`site_name`, `external_id`, and a valid config: at least `host` and numeric `address`). Useful for a small set of utility or meter registers on typical BAS jobs.
 - **Weather layer:** Points with `external_id` = `temp_f`, `rh_pct`, `dewpoint_f`, etc. come from the Open-Meteo weather fetch. They are linked to a synthetic equipment **Open-Meteo** (type **Weather_Service**) per site so they appear under “Open-Meteo” (web weather) in the **Data model** and **Points** tree. In the RDF graph that equipment is tagged with `ofdd:dataSource "open_meteo"` so you can query it via SPARQL.
 - **Rule layer:** `fdd_input` / `rule_input` maps to DataFrame column names used by YAML rules.
 

@@ -435,6 +435,71 @@ def test_points_create_with_bacnet_fields():
     assert data["object_name"] == "DAP-P"
 
 
+def test_points_create_with_modbus_config():
+    site_id = uuid4()
+    pt_id = uuid4()
+    mc = {
+        "host": "10.0.0.5",
+        "port": 502,
+        "unit_id": 1,
+        "timeout": 5.0,
+        "address": 4000,
+        "count": 2,
+        "function": "holding",
+        "decode": "float32",
+    }
+    row = {
+        "id": pt_id,
+        "site_id": site_id,
+        "external_id": "meter_kW",
+        "brick_type": "Power_Sensor",
+        "fdd_input": "meter_kw",
+        "unit": "kW",
+        "description": "Main meter",
+        "equipment_id": None,
+        "bacnet_device_id": None,
+        "object_identifier": None,
+        "object_name": None,
+        "polling": True,
+        "modbus_config": mc,
+        "created_at": "2024-01-01T00:00:00",
+    }
+    conn = _mock_conn(fetchone=row)
+    with _patch_db(conn), patch("openfdd_stack.platform.api.points.sync_ttl_to_file"):
+        r = client.post(
+            "/points",
+            json={
+                "site_id": str(site_id),
+                "external_id": "meter_kW",
+                "brick_type": "Power_Sensor",
+                "fdd_input": "meter_kw",
+                "unit": "kW",
+                "description": "Main meter",
+                "modbus_config": mc,
+            },
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["external_id"] == "meter_kW"
+    assert data["modbus_config"]["host"] == "10.0.0.5"
+    assert data["modbus_config"]["address"] == 4000
+
+
+def test_points_create_invalid_modbus_config_422():
+    site_id = uuid4()
+    conn = _mock_conn(fetchone=None)
+    with _patch_db(conn):
+        r = client.post(
+            "/points",
+            json={
+                "site_id": str(site_id),
+                "external_id": "bad_modbus",
+                "modbus_config": {"host": "", "address": 0},
+            },
+        )
+    assert r.status_code == 422
+
+
 def test_points_get_404():
     conn = _mock_conn(fetchone=None)
     with _patch_db(conn):

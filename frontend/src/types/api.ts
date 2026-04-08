@@ -54,8 +54,24 @@ export interface Point {
   object_name: string | null;
   /** From data model (ofdd:polling in TTL). If true, BACnet scraper polls this point. */
   polling: boolean;
+  /** When set, Modbus TCP scrape reads this point via the BACnet gateway /modbus/read_registers. */
+  modbus_config?: Record<string, unknown> | null;
   created_at: string;
 }
+
+/** PATCH /points/{id} — mirrors backend PointUpdate (all fields optional). */
+export type PointPatchBody = Partial<{
+  brick_type: string | null;
+  fdd_input: string | null;
+  unit: string | null;
+  description: string | null;
+  equipment_id: string | null;
+  bacnet_device_id: string | null;
+  object_identifier: string | null;
+  object_name: string | null;
+  polling: boolean | null;
+  modbus_config: Record<string, unknown> | null;
+}>;
 
 /** GET /timeseries/latest — latest reading per point (BACnet scraper / weather). */
 export interface TimeseriesLatestItem {
@@ -143,6 +159,8 @@ export interface DataModelExportRow {
   rule_input?: string | null;
   unit?: string | null;
   polling?: boolean;
+  /** Modbus TCP register map for this point (same scrape interval as BACnet when enabled). */
+  modbus_config?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 
@@ -327,4 +345,113 @@ export interface FaultResultsSampleResponse {
   }[];
   count: number;
 }
+
+/** GET /energy-calculations/calc-types — field metadata for the Energy Engineering UI. */
+export interface EnergyCalcFieldSpec {
+  key: string;
+  label: string;
+  type: string;
+  min?: number;
+  max?: number;
+  default?: number | string;
+  options?: string[];
+}
+
+export interface EnergyCalcTypePublic {
+  id: string;
+  label: string;
+  summary: string;
+  category: string;
+  fields: EnergyCalcFieldSpec[];
+}
+
+export interface EnergyCalculation {
+  id: string;
+  site_id: string;
+  equipment_id: string | null;
+  external_id: string;
+  name: string;
+  description: string | null;
+  calc_type: string;
+  parameters: Record<string, unknown>;
+  point_bindings: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EnergyPreviewResult {
+  calc_type: string;
+  annual_kwh_saved: number | null;
+  annual_therms_saved: number | null;
+  annual_mmbtu_saved: number | null;
+  annual_cost_saved_usd: number | null;
+  peak_kw_reduced: number | null;
+  simple_payback_years: number | null;
+  confidence_score: number | null;
+  missing_inputs: string[];
+  assumptions_used: string[];
+  notes: string;
+}
+
+export interface EnergyCalculationCreateBody {
+  site_id: string;
+  equipment_id?: string | null;
+  external_id: string;
+  name: string;
+  description?: string | null;
+  calc_type: string;
+  parameters?: Record<string, unknown>;
+  point_bindings?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+/** GET /energy-calculations/export — LLM bundle (includes embedded calc_types). */
+export interface EnergyCalculationsExportPayload {
+  format: string;
+  site_id: string;
+  site_name: string | null;
+  exported_at: string;
+  documentation_hint?: string;
+  calc_types: EnergyCalcTypePublic[];
+  /** Default FDD penalty narratives (18); same as GET /energy-calculations/penalty-catalog */
+  penalty_catalog?: Array<Record<string, unknown>>;
+  energy_calculations: EnergyCalculation[];
+}
+
+/** One row in PUT /energy-calculations/import (no DB id required). */
+export interface EnergyCalculationImportRow {
+  external_id: string;
+  name: string;
+  description?: string | null;
+  calc_type: string;
+  parameters?: Record<string, unknown>;
+  point_bindings?: Record<string, unknown>;
+  enabled?: boolean;
+  equipment_id?: string | null;
+  equipment_name?: string | null;
+}
+
+export interface EnergyCalculationsImportBody {
+  site_id: string;
+  energy_calculations: EnergyCalculationImportRow[];
+}
+
+export interface EnergyCalculationsImportResponse {
+  total: number;
+  created: number;
+  updated: number;
+  warnings: string[];
+}
+
+/** PATCH /energy-calculations/{id} */
+export type EnergyCalculationPatchBody = Partial<{
+  equipment_id: string | null;
+  name: string;
+  description: string | null;
+  calc_type: string;
+  parameters: Record<string, unknown>;
+  point_bindings: Record<string, unknown>;
+  enabled: boolean;
+}>;
 

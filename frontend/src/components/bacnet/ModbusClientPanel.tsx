@@ -225,9 +225,11 @@ export function ModbusClientPanel({ gateway }: ModbusClientPanelProps) {
           <CardTitle className="text-lg">Modbus TCP test bench</CardTitle>
           <p className="text-sm font-normal text-muted-foreground">
             Calls the BACnet gateway container&apos;s <code className="rounded bg-muted px-1 text-xs">POST /modbus/read_registers</code>{" "}
-            (proxied as <code className="rounded bg-muted px-1 text-xs">POST /bacnet/modbus_read_registers</code>). Uses the same gateway
-            selector as BACnet tools. Polling uses the same scrape interval as BACnet when{" "}
-            <code className="rounded bg-muted px-1 text-xs">modbus_config</code> is set on points.
+            (proxied as <code className="rounded bg-muted px-1 text-xs">POST /bacnet/modbus_read_registers</code>) with a batch{" "}
+            <code className="rounded bg-muted px-1 text-xs">registers[]</code> payload. <strong>Add to data model</strong> writes one point per
+            named row using flat <code className="rounded bg-muted px-1 text-xs">modbus_config</code> (host, address, count, function, …)—not the
+            whole batch object on a single point. Uses the same gateway selector as BACnet tools. Polling uses the same scrape interval as BACnet
+            when <code className="rounded bg-muted px-1 text-xs">modbus_config</code> is set on points.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">

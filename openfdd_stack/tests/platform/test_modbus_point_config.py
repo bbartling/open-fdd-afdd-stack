@@ -1,5 +1,7 @@
 """Unit tests for modbus_point_config.normalize_modbus_config."""
 
+import pytest
+
 from openfdd_stack.platform.modbus_point_config import normalize_modbus_config
 
 
@@ -64,3 +66,37 @@ def test_normalize_count_boundaries():
     assert normalize_modbus_config({**_base(), "count": 1}) is not None
     assert normalize_modbus_config({**_base(), "count": 125}) is not None
     assert normalize_modbus_config({**_base(), "count": 126}) is None
+
+
+def test_normalize_flattens_single_register_batch_shape():
+    """Proxy / test-bench body with one registers[] entry maps to point modbus_config."""
+    n = normalize_modbus_config(
+        {
+            "host": "192.168.1.50",
+            "port": 502,
+            "unit_id": 2,
+            "timeout": 5.0,
+            "registers": [{"address": 40001, "count": 2, "function": "holding", "decode": "float32"}],
+        }
+    )
+    assert n is not None
+    assert n["host"] == "192.168.1.50"
+    assert n["port"] == 502
+    assert n["unit_id"] == 2
+    assert n["address"] == 40001
+    assert n["count"] == 2
+    assert n["function"] == "holding"
+    assert n["decode"] == "float32"
+
+
+def test_normalize_rejects_multiple_registers_with_clear_message():
+    with pytest.raises(ValueError, match="one Modbus register read per point"):
+        normalize_modbus_config(
+            {
+                "host": "10.0.0.1",
+                "registers": [
+                    {"address": 0, "count": 1},
+                    {"address": 1, "count": 1},
+                ],
+            }
+        )

@@ -18,9 +18,32 @@ def normalize_modbus_config(cfg: dict[str, Any]) -> Optional[dict[str, Any]]:
 
     Required: non-empty ``host``, integer ``address`` in range, ``function`` holding|input.
     Optional with defaults: ``port`` 502, ``unit_id`` 1, ``timeout`` 5.0, ``count`` 1.
+
+    If the dict looks like the gateway **batch read** body (top-level ``registers`` list),
+    a **single** register object is merged into the flat point shape. Multiple registers
+    raise ``ValueError`` with operator-oriented guidance (one DB point per register).
     """
     if not isinstance(cfg, dict):
         return None
+
+    if "registers" in cfg:
+        regs = cfg.get("registers")
+        if not isinstance(regs, list) or len(regs) == 0:
+            return None
+        if len(regs) > 1:
+            raise ValueError(
+                "modbus_config must describe one Modbus register read per point. "
+                "The gateway batch request uses registers[] for multiple reads at once; "
+                "for a persisted point use a flat object (host, address, count, function, …) "
+                "without registers, or add one data-model row per register."
+            )
+        first = regs[0]
+        if not isinstance(first, dict):
+            return None
+        cfg = {k: v for k, v in cfg.items() if k != "registers"}
+        for k, val in first.items():
+            cfg[k] = val
+
     host = str(cfg.get("host") or "").strip()
     if not host:
         return None

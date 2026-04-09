@@ -58,9 +58,10 @@ OpenClaw usually starts here **when host access exists**.
 | Location | Role | When it fails, log as… |
 |----------|------|-------------------------|
 | `openclaw/scripts/` | Small helpers and generic LAN probes | area: `bootstrap` / `tooling` / `edge-probe` |
-| `openclaw/bench/e2e/` | Heavy Python: Selenium, SPARQL, BACnet, hot-reload, AI payload tests | area: `e2e`, `sparql`, `bacnet`, `hot-reload`, `ai-modeling` |
-| `openclaw/bench/scripts/` | bench-side helper utilities | area: `bench` / `bacnet` |
+| `openclaw/bench/e2e/` | Heavy Python: Selenium, SPARQL, BACnet, Modbus, hot-reload, AI payload tests | area: `e2e`, `sparql`, `bacnet`, `modbus`, `hot-reload`, `ai-modeling` |
+| `openclaw/bench/scripts/` | bench-side helper utilities, including fake Modbus harness | area: `bench` / `bacnet` / `modbus` |
 | `openclaw/bench/fake_bacnet_devices/` | fake devices and schedules | area: `fake_bacnet` |
+| `openclaw/bench/scripts/fake_modbus_device.py` | fake Modbus TCP device for gateway / backend / point-model validation | area: `fake_modbus` / `modbus` |
 | `openclaw/windows/` | Windows bench wrappers | area: `windows_bench` |
 | `openclaw/bench/sparql/` | SPARQL fixtures | area: `sparql` / `graph` |
 | `openclaw/references/` | stable guidance for OpenClaw sessions | area: `context` |
@@ -72,8 +73,9 @@ When the task is model-centric rather than stack-centric, prioritize:
 - `openclaw/bench/e2e/ai_modeling_pass.py`
 - `openclaw/bench/fixtures/`
 - `openclaw/bench/sparql/`
+- `openclaw/bench/modbus_fake_device_sample.json` when Modbus-backed points or energy examples are involved
 
-Log these as `ai-modeling`, `graph`, or `bacnet-reference` rather than lumping them into generic frontend failure.
+Log these as `ai-modeling`, `graph`, `bacnet-reference`, or `modbus-modeling` rather than lumping them into generic frontend failure.
 
 ## Product / CI backend
 

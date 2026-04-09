@@ -1,6 +1,6 @@
 # Long-run lab pass (OpenClaw) — backed up with the skill
 
-This file is **versioned in git** (`open-fdd/openclaw/references/` on GitHub). The Control UI chat is **not** durable; this runbook + **`issues_log.md`** are.
+This file is **versioned in git** (`open-fdd-afdd-stack/openclaw/references/` on GitHub). The Control UI chat is **not** durable; this runbook + **`issues_log.md`** are.
 
 ## Reality check
 
@@ -14,12 +14,14 @@ This file is **versioned in git** (`open-fdd/openclaw/references/` on GitHub). T
 Long-run lab pass (file-backed — do not ask me to repeat repo context).
 
 Read first (in order):
-- openclaw/HANDOFF_PROTOCOL.md
-- openclaw/references/legacy_automated_testing.md (skip if no links to open-fdd-automated-testing)
-- openclaw/references/testing_layers.md
-- openclaw/references/api_throttle.md
 - openclaw/SKILL.md
+- openclaw/HANDOFF_PROTOCOL.md
+- openclaw/references/testing_layers.md
+- openclaw/references/generic_lan_testing.md
+- openclaw/references/api_throttle.md
+- openclaw/references/legacy_automated_testing.md (skip if no links to open-fdd-automated-testing)
 - Latest sections of openclaw/issues_log.md
+- openclaw/bench/README_modbus_fake_device.md if Modbus is in scope
 
 Source of truth: repo + issues_log + logs under openclaw/logs/. Do not rely on Control UI chat history.
 
@@ -39,11 +41,12 @@ Those scripts set `ts`, `tee`, and `.venv` activation internally. For background
 6) Bench: openclaw/bench/e2e/README.md — at most ONE heavy script per stretch; throttle per api_throttle.md.
 
 Rules:
-- cd open-fdd for all ./scripts/*.
-- Do not change product code (open_fdd/, packages/, frontend/src/) unless human explicitly allowed.
+- cd repo root for all `./scripts/*` and `./openclaw/*` commands.
+- Do not change product code (`open_fdd/`, `packages/`, `frontend/src/`) unless human explicitly allowed.
 - Same command failed twice → stop; issues_log next for senior + log path.
 - git commit/push ONLY if human asked in this message.
 - API/token limits → issues_log blocked; stop.
+- For Modbus work, prove the fake device / gateway / backend path before claiming frontend or import failure.
 
 Reply only with: step completed, latest log path, next queue item.
 ```

@@ -17,6 +17,23 @@ Repo-local source edits are optional and only when explicitly requested by the h
 
 **Agent entry:** [`SKILL.md`](SKILL.md) · [`HANDOFF_PROTOCOL.md`](HANDOFF_PROTOCOL.md).
 
+## Fast start for a fresh OpenClaw clone
+
+Read in this order:
+1. [`SKILL.md`](SKILL.md)
+2. [`HANDOFF_PROTOCOL.md`](HANDOFF_PROTOCOL.md)
+3. latest relevant section in [`issues_log.md`](issues_log.md)
+4. [`references/testing_layers.md`](references/testing_layers.md)
+5. [`references/generic_lan_testing.md`](references/generic_lan_testing.md)
+6. [`references/frontend_testing.md`](references/frontend_testing.md)
+7. [`bench/README_modbus_fake_device.md`](bench/README_modbus_fake_device.md) when Modbus is in scope
+
+Then decide which posture applies:
+- **edge-only** → generic LAN probe + frontend observation first
+- **host-aware** → inspect env/mode/logs, then run bootstrap/verify/testing helpers
+- **modeling-first** → review payload shape / BRICK / import-export parity before runtime blame
+- **Modbus-first** → prove the fake device and read path before mutating a shared live bench
+
 ## System under test
 
 Open-FDD is usually treated as an externally running bench or deployment.
@@ -87,20 +104,24 @@ Rules:
    - Selenium workflow validation
    - UI state, error handling, console failures
    - Data Model Testing UI parity
+   - Modbus-tab / Energy Engineering workflow checks
 2. Backend / API
    - auth preflight
    - config and data-model endpoints
    - SPARQL query correctness
    - graph integrity checks
+   - backend proxy routes for BACnet / Modbus reads
 3. AI-assisted data modeling
    - payload shape validation
    - site/equipment/point topology review
    - import/export parity
    - Standard 223 / BRICK / naming sanity
-4. BACnet integration
-   - add-to-model flows
-   - address/reference integrity
-   - live property reads via gateway
+4. Device integration
+   - BACnet add-to-model flows
+   - BACnet address/reference integrity
+   - raw or proxied BACnet reads via gateway
+   - Modbus point config sanity
+   - fake-device / gateway / backend-proxy proof for Modbus
 5. Overnight stability
    - long-run scrape review
    - FDD pass/fail review
@@ -184,8 +205,9 @@ python openclaw/bench/scripts/fake_modbus_device.py --host 127.0.0.1 --port 1502
 
 When spawning a new OpenClaw instance for Open-FDD work, default it to this posture:
 - treat the stack as **externally running** until proven local
-- read `SKILL.md`, `HANDOFF_PROTOCOL.md`, `README.md`, and the latest `issues_log.md` section first
+- read `SKILL.md`, `HANDOFF_PROTOCOL.md`, `README.md`, `references/testing_layers.md`, and the latest `issues_log.md` section first
 - use generic LAN probes before one-off curls
 - use the fake Modbus harness before inventing a new Modbus fixture
+- classify failures before escalating: auth drift vs bench limitation vs product bug
 - keep site-specific secrets and bench-only notes out of committed repo files
 - promote reusable lessons into `openclaw/` so the next clone starts smarter

@@ -26,6 +26,7 @@ Use the generic LAN probes first:
 - Vitest runs in CI / `./scripts/bootstrap.sh --test`.
 - Selenium / E2E lives under `openclaw/bench/e2e/`.
 - AI/data-model payload tests are often better signal than brittle click-path assertions when the mission is new-building modeling help.
+- For Modbus UI work, prove the fake device and backend/gateway read path first via `openclaw/bench/README_modbus_fake_device.md` before blaming the frontend tab.
 
 ## Reporting
 

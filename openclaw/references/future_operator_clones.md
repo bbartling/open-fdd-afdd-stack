@@ -1,4 +1,4 @@
-# Future: OpenClaw clones on live HVAC / Open-FDD sites
+# OpenClaw clones on live HVAC / Open-FDD sites
 
 ## What varies per deployment
 
@@ -7,11 +7,13 @@
 - **BACnet** device inventory and credentials.
 - **Operator workflows** — alarms, schedules, ticketing integrations (future).
 
-## Unknown / to be defined
+## Durable defaults for new clones
 
-- **Gold standard** “day-one” skill pack for a new clone (minimal vs full operator).
-- How much lives in **repo `openclaw/`** vs **per-site git** vs **OpenClaw workspace `memory/`**.
-- **Secrets** handling (never in `issues_log` or committed env files).
+- keep the repo-owned starter pack in `openclaw/`
+- keep site-specific truth in the live graph, active env, or local workspace memory
+- never commit secrets, live tokens, or plaintext app passwords
+- prefer generic LAN procedures over bench-IP hardcoding
+- reuse the fake Modbus kit before inventing another fixture
 
 ## What to do now
 
@@ -26,4 +28,4 @@
    - or a bench fixture under `openclaw/bench/`
 5. Reuse `bench/scripts/fake_modbus_device.py` and `bench/modbus_fake_device_sample.json` as the default Modbus bring-up kit for new OpenClaw clones instead of rebuilding a fake device each time.
 
-This file is intentionally incomplete — update as real deployments teach us.
+Update this file when a pattern has proved reusable across more than one site or bench.

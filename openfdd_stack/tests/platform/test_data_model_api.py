@@ -374,6 +374,85 @@ def test_data_model_import_rejects_unknown_top_level_keys():
     assert r.status_code == 422
 
 
+def test_data_model_import_explicit_null_modbus_config_clears_column():
+    """JSON null for modbus_config clears the DB column; omitting the key would leave it unchanged."""
+    site_id = uuid4()
+    point_id = uuid4()
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    cursor.execute.return_value = None
+    cursor.fetchall.return_value = [{"id": site_id}]
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
+    body = {
+        "points": [
+            {
+                "point_id": str(point_id),
+                "modbus_config": None,
+            }
+        ]
+    }
+    with (
+        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
+    ):
+        r = client.put("/data-model/import", json=body)
+    assert r.status_code == 200
+    update_calls = [
+        c
+        for c in cursor.execute.call_args_list
+        if c.args and isinstance(c.args[0], str) and "UPDATE points SET" in c.args[0]
+    ]
+    assert update_calls
+    assert any(
+        "modbus_config = %s" in c.args[0] and None in (c.args[1] if len(c.args) > 1 else ())
+        for c in update_calls
+    )
+
+
+def test_data_model_import_invalid_modbus_float32_count_one_returns_422():
+    """Non-empty modbus_config that fails normalize must fail the import (not 200 + silent skip)."""
+    site_id = uuid4()
+    point_id = uuid4()
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    cursor.execute.return_value = None
+    cursor.fetchall.return_value = [{"id": site_id}]
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
+    body = {
+        "points": [
+            {
+                "point_id": str(point_id),
+                "site_id": str(site_id),
+                "modbus_config": {
+                    "host": "127.0.0.1",
+                    "address": 0,
+                    "count": 1,
+                    "function": "holding",
+                    "decode": "float32",
+                },
+            }
+        ]
+    }
+    with (
+        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
+    ):
+        r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    payload = r.json()
+    msg = payload.get("detail") or (payload.get("error") or {}).get("message", "")
+    assert isinstance(msg, str)
+    assert "count >=" in msg
+
+
 def test_data_model_import_updates_points():
     cursor = MagicMock()
     cursor.rowcount = 1

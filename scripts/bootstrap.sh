@@ -2080,12 +2080,14 @@ else
   fi
   echo "  Frontend: http://127.0.0.1:5173   (or via Caddy http://127.0.0.1)"
   echo "  BACnet:   http://127.0.0.1:8080   (gateway; operators use web UI → BACnet tools)"
+  echo "  Through Caddy: API under /api/* (e.g. https://HOST/api/health); OpenAPI at /api/docs when OFDD_ENABLE_OPENAPI_DOCS=true. Machine auth: Bearer token from OFDD_API_KEY in stack/.env. Gateway Swagger: /bacnet/docs (self-signed) or :8080/docs."
   bootstrap_print_remote_access_hints
   if grep -qE '^OPENFDD_CADDYFILE=.*Caddyfile\.selfsigned' "$STACK_DIR/.env" 2>/dev/null; then
     echo ""
     echo "  Self-signed TLS: open the app at https://localhost/ (or https://THIS_HOST/) — not :5173 alone."
     echo "  OpenAPI/Swagger on :8000 and :8080 stay off; use the web app via Caddy HTTPS."
     echo "  Direct ports (HTTP, automation): :8000 API, :8080 gateway, :5173 static (no /api proxy)."
+    echo "  With docs enabled: OpenAPI at https://localhost/api/docs — Authorization: Bearer <OFDD_API_KEY from stack/.env>."
   fi
   echo "  (Grafana not started by default. Use --with-grafana to include it.)"
 fi

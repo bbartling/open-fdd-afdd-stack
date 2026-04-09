@@ -500,6 +500,28 @@ def test_points_create_invalid_modbus_config_422():
     assert r.status_code == 422
 
 
+def test_points_create_modbus_float32_count_one_422():
+    """32-bit decode requires count >= 2 at CRUD boundary (same rule as normalize_modbus_config)."""
+    site_id = uuid4()
+    conn = _mock_conn(fetchone=None)
+    with _patch_db(conn):
+        r = client.post(
+            "/points",
+            json={
+                "site_id": str(site_id),
+                "external_id": "bad_modbus_count",
+                "modbus_config": {
+                    "host": "10.0.0.1",
+                    "address": 0,
+                    "count": 1,
+                    "function": "holding",
+                    "decode": "float32",
+                },
+            },
+        )
+    assert r.status_code == 422
+
+
 def test_points_get_404():
     conn = _mock_conn(fetchone=None)
     with _patch_db(conn):

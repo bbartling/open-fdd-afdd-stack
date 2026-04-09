@@ -75,6 +75,7 @@ Rules:
 - Always classify first, then process.
 - Never use the thinking model for a task that fits the SIMPLE list.
 
+
 ## Testing layers
 
 1. Frontend / web app

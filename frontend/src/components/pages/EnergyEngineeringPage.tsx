@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database, ListOrdered, Upload } from "lucide-react";
@@ -799,8 +799,16 @@ function EnergyCalculationWorkbench() {
               <ul className="mt-2 grid list-none gap-1 text-xs text-muted-foreground md:grid-cols-2">
                 <li>kWh (annual est.): {preview.annual_kwh_saved ?? "—"}</li>
                 <li>Therms (annual est.): {preview.annual_therms_saved ?? "—"}</li>
+                <li>MMBtu (annual est.): {preview.annual_mmbtu_saved ?? "—"}</li>
                 <li>Cost USD (annual est.): {preview.annual_cost_saved_usd ?? "—"}</li>
                 <li>Peak kW reduced: {preview.peak_kw_reduced ?? "—"}</li>
+                <li>
+                  Simple payback (years):{" "}
+                  {preview.simple_payback_years ?? "—"}{" "}
+                  <span className="text-muted-foreground">
+                    (often unset until capex is modeled)
+                  </span>
+                </li>
                 <li>Confidence: {preview.confidence_score ?? "—"}</li>
                 <li>Missing inputs: {(preview.missing_inputs ?? []).join(", ") || "none"}</li>
               </ul>
@@ -816,7 +824,36 @@ function EnergyCalculationWorkbench() {
 type TabId = "energy" | "metadata";
 
 export function EnergyEngineeringPage() {
-  const [tab, setTab] = useState<TabId>("energy");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const initialTab: TabId = tabFromUrl === "metadata" ? "metadata" : "energy";
+  const [tab, setTabState] = useState<TabId>(initialTab);
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t === "metadata" || t === "energy") {
+      setTabState(t);
+    }
+  }, [searchParams]);
+
+  const setTab = useCallback(
+    (next: TabId) => {
+      setTabState(next);
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          if (next === "energy") {
+            p.delete("tab");
+          } else {
+            p.set("tab", "metadata");
+          }
+          return p;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   return (
     <div>

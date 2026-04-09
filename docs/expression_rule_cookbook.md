@@ -49,6 +49,39 @@ The Brick TTL (and SPARQL) maps each Brick class to the actual column via extern
 
 ---
 
+## Signal scaling (0–1 fraction vs 0–100 percent)
+
+Many cookbook thresholds (e.g. `drv_hi_frac: 0.93`, comparisons to `0.01`) assume **command signals are in 0–1** (fraction of full scale). In the field, BACnet and some historians often expose **0–100** (percent) for the same semantics.
+
+- **`type: expression` rules** use the DataFrame columns as-is. If your VFD command is 0–100 but the YAML uses `0.93`, either fix the data at the source, document units in the data model, or **scale in the expression**.
+- **Built-in** rule types **`hunting`** and **`oa_fraction`** automatically treat signals as percent when **any** sample in the series is `> 1` (they divide by 100). **`expression`** rules do **not** apply that heuristic unless you do it explicitly.
+
+**Recommended patterns in expressions**
+
+1. **`normalize_cmd(series)`** (open-fdd **2.3+**) — Injected next to `np`. Same heuristic as `hunting`/`oa_fraction`: if any finite value is `> 1`, the whole series is divided by 100; otherwise left as-is. Non-numeric cells become NaN.
+
+   ```text
+   (normalize_cmd(Supply_Fan_Speed_Command) >= drv_hi_frac - drv_near_hi)
+   ```
+
+2. **Explicit `np.where`** (works on all open-fdd versions):
+
+   ```text
+   (np.where(Supply_Fan_Speed_Command > 1, Supply_Fan_Speed_Command / 100.0, Supply_Fan_Speed_Command) >= 0.93)
+   ```
+
+Mixed 0–1 and 0–100 in one series is ambiguous—prefer consistent scaling per point in the **data model** or **trend export**.
+
+**Engine validation (open-fdd 2.3+)**
+
+- Merged rule **`params`** are coerced/validated with **Pydantic** for `schedule` and `weather_band` (string numerics for scalars are best-effort coerced).
+- **`RuleRunner.run(..., input_validation='warn'|'strict')`** checks that mapped columns exist and are **largely numeric** after `pd.to_numeric`; **`strict`** raises before evaluating expressions.
+- On the **AFDD stack**, set **`OFDD_FDD_STRICT_RULES=true`** to enable strict validation and **`skip_missing_columns=False`** when the installed open-fdd is **≥ 2.3** (older wheels still get fail-fast on missing columns in strict mode, without `input_validation`).
+
+When **`skip_missing_columns=True`** (production default), rules that hit missing names/columns are **skipped** and a **warning** is logged (rule name, flag, exception).
+
+---
+
 ## AHU rules (reference-style)
 
 The following rules follow common industry practice for air-handling fault detection. Rules A through M are adapted from ASHRAE Guideline 36 (GL36) AFDD guidance. Thresholds and logic are tunable; adjust params for your site.

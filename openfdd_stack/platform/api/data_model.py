@@ -436,7 +436,9 @@ class PointImportRow(BaseModel):
     )
     modbus_config: dict | None = Field(
         None,
-        description="Modbus TCP read spec (host, port, unit_id, address, function, count, …). Omit on update to leave unchanged.",
+        description="Modbus TCP read spec (host, port, unit_id, address, function, count, decode, …). "
+        "Omit on update to leave unchanged. Include JSON null explicitly to clear Modbus binding (distinct from omitting the key). "
+        "For decode float32, uint32, or int32, count must be >= 2.",
     )
 
     model_config = {
@@ -649,6 +651,21 @@ def _deep_merge_dict(base: dict | None, overlay: dict | None) -> dict:
     return out
 
 
+def _invalid_modbus_config_import_exc(
+    *, point_id: str | None, external_id: str | None
+) -> HTTPException:
+    """Reject the whole import when a row supplies a non-empty modbus_config dict that does not normalize."""
+    return HTTPException(
+        status_code=422,
+        detail=(
+            "Invalid modbus_config: require non-empty host, integer address (0-65535), "
+            "function holding or input, count 1-125; decode must be raw|uint16|int16|uint32|int32|float32 when set; "
+            "float32, int32, and uint32 require count >= 2 (two 16-bit registers). "
+            f"(point_id={point_id!r}, external_id={external_id!r})"
+        ),
+    )
+
+
 def _upsert_equipment_metadata(
     cur: Any,
     equipment_id: str,
@@ -701,6 +718,11 @@ def _create_or_upsert_without_point_id(
 
     mc = point_row.modbus_config
     mc_norm = normalize_modbus_config(mc) if isinstance(mc, dict) else None
+    if isinstance(mc, dict) and mc and mc_norm is None:
+        raise _invalid_modbus_config_import_exc(
+            point_id=point_row.point_id,
+            external_id=point_row.external_id,
+        )
     modbus_path = mc_norm is not None
 
     if modbus_path:
@@ -1005,22 +1027,19 @@ def import_data_model(body: DataModelImportBody):
                     if row.polling is not None:
                         updates.append("polling = %s")
                         params.append(row.polling)
-                    if row.modbus_config is not None:
-                        if not row.modbus_config:
+                    if "modbus_config" in row.model_fields_set:
+                        if row.modbus_config is None or not row.modbus_config:
                             updates.append("modbus_config = %s")
                             params.append(None)
                         else:
                             _nmc = normalize_modbus_config(row.modbus_config)
                             if _nmc is None:
-                                warnings.append(
-                                    {
-                                        "point_id": row.point_id,
-                                        "reason": "modbus_config could not be normalized; column not updated",
-                                    }
+                                raise _invalid_modbus_config_import_exc(
+                                    point_id=row.point_id,
+                                    external_id=row.external_id,
                                 )
-                            else:
-                                updates.append("modbus_config = %s")
-                                params.append(Json(_nmc))
+                            updates.append("modbus_config = %s")
+                            params.append(Json(_nmc))
                     if updates:
                         params.append(str(point_uuid))
                         cur.execute(

@@ -130,7 +130,10 @@ function AppRoutes() {
           <Route path="system" element={<SystemResourcesPage />} />
           <Route path="data-model" element={<DataModelPage />} />
           <Route path="energy-engineering" element={<EnergyEngineeringPage />} />
-          <Route path="data-model-engineering" element={<Navigate to="/energy-engineering" replace />} />
+          <Route
+            path="data-model-engineering"
+            element={<Navigate to="/energy-engineering?tab=metadata" replace />}
+          />
           <Route path="data-model-testing" element={<DataModelTestingPage />} />
         </Route>
         <Route

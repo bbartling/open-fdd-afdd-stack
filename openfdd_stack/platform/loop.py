@@ -28,6 +28,43 @@ from openfdd_stack.platform.site_resolver import resolve_site_uuid
 from open_fdd.schema import FDDResult, results_from_runner_output
 
 
+def _fdd_runner_run_kwargs(
+    settings: object,
+    *,
+    strict: bool,
+    column_map: dict[str, str],
+) -> dict:
+    """
+    Keyword arguments for ``RuleRunner.run`` aligned with installed open-fdd.
+
+    open-fdd 2.3+ adds ``input_validation`` and Pydantic-backed param coercion; older
+    wheels only support ``skip_missing_columns``.
+    """
+    kw: dict = {
+        "timestamp_col": "timestamp",
+        "rolling_window": getattr(settings, "rolling_window", None),
+        "column_map": column_map,
+        "params": {"units": "imperial"},
+    }
+    try:
+        import importlib.metadata as im
+
+        parts = im.version("open-fdd").split(".")
+        mm = (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+        new_api = mm >= (2, 3)
+    except Exception:
+        new_api = False
+    if strict:
+        kw["skip_missing_columns"] = False
+        if new_api:
+            kw["input_validation"] = "strict"
+    else:
+        kw["skip_missing_columns"] = True
+        if new_api:
+            kw["input_validation"] = "off"
+    return kw
+
+
 def load_timeseries_for_site(
     site_id: str,
     start_ts: datetime,
@@ -289,6 +326,7 @@ def run_fdd_loop(
         or any(et in equipment_types for et in r.get("equipment_type", []))
     ]
     runner = RuleRunner(rules=rules)
+    strict = bool(getattr(settings, "fdd_strict_rules", False))
 
     end_ts = datetime.now(timezone.utc)
     start_ts = end_ts - timedelta(days=lookback)
@@ -333,11 +371,9 @@ def run_fdd_loop(
                 ran_equipment = True
                 res = runner.run(
                     df,
-                    timestamp_col="timestamp",
-                    rolling_window=getattr(settings, "rolling_window", None),
-                    column_map=column_map,
-                    params={"units": "imperial"},
-                    skip_missing_columns=True,
+                    **_fdd_runner_run_kwargs(
+                        settings, strict=strict, column_map=column_map
+                    ),
                 )
                 results = results_from_runner_output(
                     res, sid, eq_name, timestamp_col="timestamp"
@@ -350,11 +386,9 @@ def run_fdd_loop(
                     sites_processed += 1
                     res = runner.run(
                         df,
-                        timestamp_col="timestamp",
-                        rolling_window=getattr(settings, "rolling_window", None),
-                        column_map=column_map,
-                        params={"units": "imperial"},
-                        skip_missing_columns=True,
+                        **_fdd_runner_run_kwargs(
+                            settings, strict=strict, column_map=column_map
+                        ),
                     )
                     results = results_from_runner_output(
                         res, sid, site_name, timestamp_col="timestamp"

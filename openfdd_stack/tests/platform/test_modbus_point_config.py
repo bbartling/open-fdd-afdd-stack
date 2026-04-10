@@ -33,6 +33,16 @@ def test_normalize_coerces_float32_decode():
     assert n["decode"] == "float32"
 
 
+@pytest.mark.parametrize("decode", ("float32", "uint32", "int32"))
+def test_normalize_rejects_32bit_decode_with_count_one(decode):
+    assert (
+        normalize_modbus_config(
+            {"host": "h", "address": 0, "count": 1, "decode": decode}
+        )
+        is None
+    )
+
+
 def _base(host: str = "10.0.0.1", address: int = 0):
     return {"host": host, "address": address}
 

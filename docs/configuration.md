@@ -29,6 +29,7 @@ Example keys (GET/PUT /config or OFDD_* at bootstrap seed):
 |-----|---------|-------------|
 | `rule_interval_hours` | 3 | FDD loop run interval (when no trigger file: run every N hours) |
 | `lookback_days` | 3 | Days of data loaded per run (each run pulls last N days into the rule engine) |
+| `fdd_strict_rules` | false | Env: **`OFDD_FDD_STRICT_RULES`**. When true, the FDD loop uses stricter open-fdd **RuleRunner** behavior (fail fast on bad column maps / non-numeric inputs when open-fdd **≥ 2.3**; see [Expression Rule Cookbook](expression_rule_cookbook#signal-scaling-0--1-fraction-vs-0--100-percent)). Intended for dev/CI, not typical production. |
 | `rules_dir` | stack/rules | **Single directory for your rules** (hot reload) |
 | `brick_ttl_dir` | — | Optional. Directory containing Brick model TTL (e.g. `config/`); platform uses first `.ttl` or brick_ttl path for FDD column mapping. Optional if using points `brick_type`/fdd_input. See [Data modeling](modeling/overview). |
 | `bacnet_enabled` | true | Enable BACnet scraper |

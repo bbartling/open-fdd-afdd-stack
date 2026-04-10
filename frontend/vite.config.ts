@@ -31,8 +31,19 @@ const apiRoutes = [
   "/rules",
 ];
 
+/** React routes whose path starts with `/data-model` but are not API paths under `/data-model/*`. */
+const DATA_MODEL_SPA_ROUTE_PREFIXES = ["/data-model-engineering", "/data-model-testing"] as const;
+
 /** Serve the SPA for browser navigation; proxy only fetch/XHR to the API. */
 function spaBypass(req: IncomingMessage) {
+  const path = (req.url ?? "").split("?")[0] ?? "";
+  if (
+    DATA_MODEL_SPA_ROUTE_PREFIXES.some(
+      (p) => path === p || path.startsWith(`${p}/`),
+    )
+  ) {
+    return "/index.html";
+  }
   if (req.headers.accept?.includes("text/html")) {
     return "/index.html";
   }

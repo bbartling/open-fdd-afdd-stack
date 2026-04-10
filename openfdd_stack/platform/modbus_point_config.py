@@ -103,6 +103,8 @@ def normalize_modbus_config(cfg: dict[str, Any]) -> Optional[dict[str, Any]]:
         if ds not in _ALLOWED_DECODE:
             return None
         out["decode"] = ds
+        if ds in ("float32", "uint32", "int32") and count < 2:
+            return None
 
     if cfg.get("scale") is not None:
         try:

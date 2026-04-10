@@ -48,6 +48,8 @@ class PlatformSettings(BaseSettings):
     rules_dir: str = (
         "stack/rules"  # default rules next to stack/docker; hot reload each run
     )
+    # When True: FDD loop fails fast on bad column_map / non-numeric inputs (open-fdd input_validation=strict, skip_missing_columns=False). Use in dev/CI.
+    fdd_strict_rules: bool = False
 
     # Driver intervals
     bacnet_scrape_interval_min: int = 5

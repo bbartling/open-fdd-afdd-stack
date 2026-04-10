@@ -29,6 +29,7 @@ def _validate_modbus_config_common(v: Any) -> Any:
             "Invalid modbus_config: require non-empty host, integer address (0-65535), "
             "function holding or input; optional port 1-65535, unit_id 0-247, "
             "timeout 0.1-120 s, count 1-125; decode must be raw|uint16|int16|uint32|int32|float32 when set; "
+            "float32, int32, and uint32 require count >= 2 (two 16-bit registers); "
             "scale/offset must be numeric when present. "
             "If you pasted the Modbus test-bench JSON, use the flat per-point shape (or a single-element "
             "registers list is accepted); registers[] with multiple entries belongs only in POST /bacnet/modbus_read_registers."

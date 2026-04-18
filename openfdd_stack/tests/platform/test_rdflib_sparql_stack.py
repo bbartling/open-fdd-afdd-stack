@@ -43,7 +43,9 @@ _:bref a ref:BACnetReference .
 
 
 def test_run_sparql_on_ttl_count_star() -> None:
-    bindings = _run_sparql_on_ttl(_MINIMAL_TTL, "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }")
+    bindings = _run_sparql_on_ttl(
+        _MINIMAL_TTL, "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }"
+    )
     assert isinstance(bindings, list)
     assert len(bindings) == 1
     assert "n" in bindings[0] or any(k.lower() == "n" for k in bindings[0])

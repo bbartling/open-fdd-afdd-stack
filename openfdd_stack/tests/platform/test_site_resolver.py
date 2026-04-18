@@ -32,7 +32,9 @@ def test_resolve_site_uuid_by_uuid():
     site_id = uuid4()
     row = {"id": site_id}
     conn = _mock_conn(fetchone=row)
-    with patch("openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn
+    ):
         result = resolve_site_uuid(str(site_id), create_if_empty=False)
     assert result == site_id
 
@@ -42,7 +44,9 @@ def test_resolve_site_uuid_by_name():
     site_id = uuid4()
     row = {"id": site_id}
     conn = _mock_conn(fetchone=row)
-    with patch("openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn
+    ):
         result = resolve_site_uuid("Default", create_if_empty=False)
     assert result == site_id
 
@@ -59,7 +63,9 @@ def test_resolve_site_uuid_not_found_other_sites_exist():
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
     conn.commit = MagicMock()
-    with patch("openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn
+    ):
         result = resolve_site_uuid("unknown", create_if_empty=False)
     assert result == site_id
 
@@ -75,7 +81,9 @@ def test_resolve_site_uuid_not_found_empty_table_create_false():
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
     conn.commit = MagicMock()
-    with patch("openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn
+    ):
         result = resolve_site_uuid("new-site", create_if_empty=False)
     assert result is None
 
@@ -92,7 +100,9 @@ def test_resolve_site_uuid_not_found_empty_table_create_true():
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
     conn.commit = MagicMock()
-    with patch("openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.site_resolver.get_conn", side_effect=lambda: conn
+    ):
         result = resolve_site_uuid("new-site", create_if_empty=True)
     assert result == site_id
     cursor.execute.assert_called()

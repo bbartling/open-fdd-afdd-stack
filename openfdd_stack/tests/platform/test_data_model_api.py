@@ -340,7 +340,9 @@ def test_data_model_import_update_by_point_id_applies_equipment_name():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch(
             "openfdd_stack.platform.api.data_model._ensure_equipment",
             return_value=vav_equipment_id,
@@ -396,7 +398,9 @@ def test_data_model_import_explicit_null_modbus_config_clears_column():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)
@@ -408,7 +412,8 @@ def test_data_model_import_explicit_null_modbus_config_clears_column():
     ]
     assert update_calls
     assert any(
-        "modbus_config = %s" in c.args[0] and None in (c.args[1] if len(c.args) > 1 else ())
+        "modbus_config = %s" in c.args[0]
+        and None in (c.args[1] if len(c.args) > 1 else ())
         for c in update_calls
     )
 
@@ -442,7 +447,9 @@ def test_data_model_import_invalid_modbus_float32_count_one_returns_422():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)
@@ -472,7 +479,9 @@ def test_data_model_import_updates_points():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)
@@ -503,7 +512,9 @@ def test_data_model_import_accepts_fdd_input_deprecated():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)
@@ -514,6 +525,7 @@ def test_data_model_import_stale_point_id_falls_back_to_create():
     """If point_id does not exist, import should create by identity fields instead of silent no-op."""
     site_id = uuid4()
     cursor = MagicMock()
+
     # First update-by-point_id misses (rowcount 0), then insert succeeds (rowcount 1).
     def _execute(sql, params=None):
         if "UPDATE points SET" in sql and "WHERE id = %s" in sql:
@@ -546,7 +558,9 @@ def test_data_model_import_stale_point_id_falls_back_to_create():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)
@@ -656,7 +670,9 @@ def test_data_model_import_infers_payload_site_for_null_rows():
         ]
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)
@@ -698,7 +714,9 @@ def test_data_model_import_equipment_engineering_metadata_is_merged():
         ],
     }
     with (
-        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn
+        ),
         patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
     ):
         r = client.put("/data-model/import", json=body)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from openfdd_stack.platform.selene.client import SeleneClient
@@ -26,6 +26,8 @@ from openfdd_stack.platform.selene.exceptions import SeleneError
 from openfdd_stack.platform.selene.naming import canonical_name
 
 logger = logging.getLogger(__name__)
+
+EdgeDirection = Literal["incoming", "outgoing"]
 
 SITE_LABEL = "site"
 EQUIPMENT_LABEL = "equipment"
@@ -185,36 +187,85 @@ def _canonical_name_pair(raw: Any) -> tuple[str, str | None]:
     return canonical, display
 
 
+def _try_delete_edge(
+    client: SeleneClient, edge_id: int, *, op_name: str, reason: str
+) -> None:
+    """Best-effort edge delete; log + continue on Selene error.
+
+    Extracted so edge-delete failures inside reconciliation surface with
+    context instead of being swallowed by ``except SeleneError: pass``.
+    """
+    try:
+        client.delete_edge(edge_id)
+    except SeleneError:
+        logger.warning(
+            "%s: failed to delete stale edge id=%s (%s); reconciliation drift "
+            "may leave an orphan edge until the next upsert.",
+            op_name,
+            edge_id,
+            reason,
+            exc_info=True,
+        )
+
+
 def _reconcile_single_edge(
     client: SeleneClient,
     *,
     source_id: int,
     edge_label: str,
-    direction: str,
+    direction: EdgeDirection,
     target_label: str,
     target_external_id: str | None,
     op_name: str,
 ) -> None:
-    """Ensure exactly one edge of ``edge_label`` exists in ``direction`` from ``source_id``.
+    """Ensure exactly one edge of ``edge_label`` is attached to ``source_id``.
 
-    Used for 1:1 FK-to-edge mappings (site -> equipment contains, equipment
-    -> point contains, equipment -> equipment feeds). Handles three cases:
+    Maintains a 1:1 FK-to-edge invariant for the common parent/peer
+    relationships (site \u2192 equipment contains, equipment \u2192 point contains,
+    equipment \u2194 equipment feeds).
 
-    - ``target_external_id`` is ``None``: delete any existing edges of this
-      label in this direction. The FK was cleared in Postgres.
-    - Target exists and edge already present with correct target: no-op.
-    - Otherwise: delete stale edges, create a fresh edge to the target.
+    ``direction`` describes the edge orientation *relative to
+    ``source_id``*:
 
-    ``direction`` is ``"outgoing"`` when the source is the FK holder
-    (equipment.site_id \u2192 equipment points OUT to site... wait, semantics
-    matter). Actually we want ``(:site)-[:contains]->(:equipment)`` regardless
-    of which row carries the FK. Callers pass ``direction="incoming"`` when
-    the edge points INTO the source (contains edges live on the parent,
-    arrive at the child).
+    - ``"outgoing"``: the edge starts at ``source_id`` and ends at the
+      target. Use when the source node is the "from" end of the desired
+      relationship (e.g. an equipment's ``feeds_equipment_id`` FK \u2192
+      ``(:equipment source)-[:feeds]->(:equipment target)``).
+    - ``"incoming"``: the edge starts at the target and ends at
+      ``source_id``. Use when the source node is the "to" end
+      (e.g. an equipment's ``site_id`` FK needs the graph edge
+      ``(:site target)-[:contains]->(:equipment source)``, so the edge
+      arrives at the source).
 
-    All Selene errors are caught and logged; the Postgres write has already
-    committed.
+    Reconciliation behaviour:
+
+    - ``target_external_id`` is ``None``: delete every matching edge.
+      The FK was cleared in Postgres.
+    - Target not yet present in Selene: drop stale matching edges and
+      skip creation. The edge will be attached when the source is
+      re-upserted after the target lands. Postgres FK constraints
+      typically enforce parent-first creation, so the window is
+      transient in practice; operators doing manual backfill should
+      upsert parents (site, then equipment) before children.
+    - Target present with the correct edge already: drop any duplicate
+      edges of the same label/direction, keep the correct one, no
+      create.
+    - Target present but edge missing or wrong: drop stale, create fresh.
+
+    All Selene errors are caught and logged (with traceback on the
+    outer pass, context-ful warnings on individual deletes); the
+    Postgres write has already committed, so reconciliation is best
+    effort.
     """
+    if direction not in ("incoming", "outgoing"):
+        # Defensive guard: silently treating unknown values as "incoming"
+        # (the previous behaviour) would create edges in the wrong
+        # direction on a typo.
+        raise ValueError(
+            f"_reconcile_single_edge: direction must be 'incoming' or 'outgoing', "
+            f"got {direction!r}"
+        )
+
     try:
         # Find existing edges of this label in the requested direction.
         existing = client.get_node_edges(source_id).get("edges", []) or []
@@ -231,57 +282,50 @@ def _reconcile_single_edge(
         if target_external_id is None:
             # FK cleared: drop every matching edge.
             for e in relevant:
-                try:
-                    client.delete_edge(e["id"])
-                except SeleneError:
-                    logger.warning(
-                        "%s: failed to delete stale edge %s",
-                        op_name,
-                        e.get("id"),
-                        exc_info=True,
-                    )
+                _try_delete_edge(client, e["id"], op_name=op_name, reason="FK cleared")
             return
 
         target = _find_by_external_id(client, target_label, target_external_id)
         if target is None:
-            # Parent/peer not yet synced to Selene (expected during backfill
-            # ordering). Drop stale edges and bail \u2014 a subsequent upsert of
-            # the target will be followed by its own reconcile pass.
+            # Parent/peer not yet synced to Selene. Skip edge creation; drop
+            # stale edges pointing at other targets. A re-upsert of *this*
+            # source (not the target) is what will attach the edge later \u2014
+            # target upserts don't scan for child nodes to reconcile. In
+            # practice, Postgres FK order makes parents land before children.
             logger.info(
-                "%s: target :%s %s=%s not in Selene yet; skipping edge",
+                "%s: target :%s %s=%s not in Selene yet; skipping edge "
+                "(will attach when this source is re-upserted)",
                 op_name,
                 target_label,
                 EXTERNAL_ID_PROP,
                 target_external_id,
             )
             for e in relevant:
-                try:
-                    client.delete_edge(e["id"])
-                except SeleneError:
-                    pass
+                _try_delete_edge(
+                    client, e["id"], op_name=op_name, reason="target absent"
+                )
             return
 
         target_id = target["id"]
-        # Edge already correct? No-op.
+        # Edge already correct? Keep it, drop any duplicates that share the
+        # label + direction but point at a different target.
         for e in relevant:
             if (direction == "outgoing" and e.get("target") == target_id) or (
                 direction == "incoming" and e.get("source") == target_id
             ):
-                # Drop any other stale edges sharing the label, keep this one.
                 for stale in relevant:
                     if stale["id"] != e["id"]:
-                        try:
-                            client.delete_edge(stale["id"])
-                        except SeleneError:
-                            pass
+                        _try_delete_edge(
+                            client,
+                            stale["id"],
+                            op_name=op_name,
+                            reason="duplicate edge",
+                        )
                 return
 
         # Need a fresh edge. Drop all stale ones first, then create.
         for e in relevant:
-            try:
-                client.delete_edge(e["id"])
-            except SeleneError:
-                pass
+            _try_delete_edge(client, e["id"], op_name=op_name, reason="target changed")
 
         if direction == "outgoing":
             client.create_edge(source_id, target_id, edge_label)

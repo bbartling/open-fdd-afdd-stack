@@ -76,9 +76,9 @@ def test_resolve_from_ttl_disambiguation_with_maps_to_rule_input(tmp_path):
 def test_brick_ttl_column_map_resolver_matches_resolve_from_ttl(tmp_path):
     ttl_file = tmp_path / "model.ttl"
     ttl_file.write_text(_MINIMAL_TTL)
-    assert BrickTtlColumnMapResolver().build_column_map(ttl_path=ttl_file) == resolve_from_ttl(
-        ttl_file
-    )
+    assert BrickTtlColumnMapResolver().build_column_map(
+        ttl_path=ttl_file
+    ) == resolve_from_ttl(ttl_file)
 
 
 def test_brick_ttl_column_map_resolver_empty_when_ttl_missing(tmp_path):

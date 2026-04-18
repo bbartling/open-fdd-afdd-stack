@@ -43,7 +43,9 @@ def test_run_fdd_loop_loads_rules_from_disk_every_run(tmp_path):
         load_calls.append(Path(path).resolve())
         return []  # no rules so runner gets empty list
 
-    with patch("openfdd_stack.platform.loop.get_conn", return_value=_mock_conn_no_sites()):
+    with patch(
+        "openfdd_stack.platform.loop.get_conn", return_value=_mock_conn_no_sites()
+    ):
         with patch(
             "open_fdd.engine.runner.load_rules_from_dir", side_effect=record_load
         ):
@@ -63,7 +65,9 @@ def test_run_fdd_loop_uses_rules_dir_from_settings(tmp_path):
     (tmp_path / "x.yaml").write_text("name: x\n")
     set_config_overlay({"rules_dir": str(tmp_path.resolve())})
 
-    with patch("openfdd_stack.platform.loop.get_conn", return_value=_mock_conn_no_sites()):
+    with patch(
+        "openfdd_stack.platform.loop.get_conn", return_value=_mock_conn_no_sites()
+    ):
         with patch("open_fdd.engine.runner.load_rules_from_dir") as m:
             m.return_value = []
             from openfdd_stack.platform.loop import run_fdd_loop

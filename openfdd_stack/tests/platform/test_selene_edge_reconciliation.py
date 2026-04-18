@@ -30,9 +30,13 @@ from openfdd_stack.platform.selene import (
 
 
 def _mock_client(handler) -> SeleneClient:
+    # owns_client=True so the context-manager exit tears down the
+    # MockTransport-backed httpx.Client in one step \u2014 keeps the test suite
+    # from leaking clients across runs.
     return SeleneClient(
         "http://selene.local:8080",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
+        owns_client=True,
     )
 
 
@@ -340,6 +344,61 @@ def test_upsert_point_moves_contains_edge_when_equipment_changes():
     contains = [e for e in g.edges.values() if e["label"] == "contains"]
     assert len(contains) == 1
     assert contains[0]["source"] == eq_b
+
+
+def test_reconcile_single_edge_rejects_invalid_direction():
+    """Guards against silent miswiring on a typo like 'incomming'."""
+    from openfdd_stack.platform.selene.graph_crud import _reconcile_single_edge
+
+    g = _FakeGraph()
+    g.seed_node(SITE_LABEL, "site-1")
+    with _mock_client(g.handler) as client:
+        with pytest.raises(ValueError, match="direction"):
+            _reconcile_single_edge(
+                client,
+                source_id=1,
+                edge_label="contains",
+                direction="incomming",  # typo
+                target_label=SITE_LABEL,
+                target_external_id="site-1",
+                op_name="test",
+            )
+
+
+def test_reconcile_logs_edge_delete_failures(caplog):
+    """When delete_edge raises, the failure must surface in logs (not a silent pass)."""
+    g = _FakeGraph()
+    site_a = g.seed_node(SITE_LABEL, "site-a")
+    site_b = g.seed_node(SITE_LABEL, "site-b")
+
+    # First upsert creates the initial contains edge to site-a.
+    with _mock_client(g.handler) as client:
+        upsert_equipment(client, {"id": "eq-1", "site_id": "site-a", "name": "AHU-1"})
+
+    # Now make DELETE /edges/{id} fail. The move to site-b triggers a stale
+    # edge delete; we expect a WARNING to land in caplog.
+    class _FailingDeleteGraph(_FakeGraph):
+        def __init__(self, seed):
+            super().__init__()
+            self.nodes = dict(seed.nodes)
+            self.edges = dict(seed.edges)
+            self._next_node = seed._next_node
+            self._next_edge = seed._next_edge
+
+        def handler(self, request):
+            if request.method == "DELETE" and request.url.path.startswith("/edges/"):
+                return httpx.Response(500, json={"error": "simulated"})
+            return super().handler(request)
+
+    failing = _FailingDeleteGraph(g)
+    with _mock_client(failing.handler) as client:
+        with caplog.at_level("WARNING"):
+            upsert_equipment(
+                client, {"id": "eq-1", "site_id": "site-b", "name": "AHU-1"}
+            )
+    assert any(
+        "failed to delete stale edge" in rec.message for rec in caplog.records
+    )
 
 
 def test_upsert_point_is_idempotent_on_repeated_upsert():

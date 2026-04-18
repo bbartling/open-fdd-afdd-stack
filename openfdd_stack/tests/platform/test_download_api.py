@@ -36,7 +36,9 @@ def _mock_conn(fetchone=None, fetchall=None):
 
 def test_download_csv_404_site_not_found():
     """When resolve_site_uuid returns None, expect 404."""
-    with patch("openfdd_stack.platform.api.download.resolve_site_uuid", return_value=None):
+    with patch(
+        "openfdd_stack.platform.api.download.resolve_site_uuid", return_value=None
+    ):
         r = client.post(
             "/download/csv",
             json={
@@ -55,7 +57,10 @@ def test_download_csv_404_no_data():
     site_id = uuid4()
     conn = _mock_conn(fetchall=[])
     with (
-        patch("openfdd_stack.platform.api.download.resolve_site_uuid", return_value=site_id),
+        patch(
+            "openfdd_stack.platform.api.download.resolve_site_uuid",
+            return_value=site_id,
+        ),
         patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn),
     ):
         r = client.post(
@@ -81,7 +86,10 @@ def test_download_csv_200_wide():
     ]
     conn = _mock_conn(fetchall=rows)
     with (
-        patch("openfdd_stack.platform.api.download.resolve_site_uuid", return_value=site_id),
+        patch(
+            "openfdd_stack.platform.api.download.resolve_site_uuid",
+            return_value=site_id,
+        ),
         patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn),
     ):
         r = client.post(
@@ -114,7 +122,10 @@ def test_download_csv_200_long():
     ]
     conn = _mock_conn(fetchall=rows)
     with (
-        patch("openfdd_stack.platform.api.download.resolve_site_uuid", return_value=site_id),
+        patch(
+            "openfdd_stack.platform.api.download.resolve_site_uuid",
+            return_value=site_id,
+        ),
         patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn),
     ):
         r = client.post(
@@ -162,7 +173,10 @@ def test_download_csv_200_long_weather_point_ids():
     conn.commit = MagicMock()
 
     with (
-        patch("openfdd_stack.platform.api.download.resolve_site_uuid", return_value=site_id),
+        patch(
+            "openfdd_stack.platform.api.download.resolve_site_uuid",
+            return_value=site_id,
+        ),
         patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn),
     ):
         r = client.post(
@@ -186,7 +200,9 @@ def test_download_csv_200_long_weather_point_ids():
 
 def test_download_faults_404_site_not_found():
     """When site_id is provided and site does not exist, expect 404."""
-    with patch("openfdd_stack.platform.api.download.resolve_site_uuid", return_value=None):
+    with patch(
+        "openfdd_stack.platform.api.download.resolve_site_uuid", return_value=None
+    ):
         r = client.get(
             "/download/faults?site_id=nosuch&start_date=2024-01-01&end_date=2024-01-31&format=csv"
         )
@@ -229,7 +245,8 @@ def test_download_faults_site_filter_matches_uuid_or_stored_name():
 
     with (
         patch(
-            "openfdd_stack.platform.api.download.resolve_site_uuid", return_value=site_uuid
+            "openfdd_stack.platform.api.download.resolve_site_uuid",
+            return_value=site_uuid,
         ),
         patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn),
     ):
@@ -242,7 +259,9 @@ def test_download_faults_site_filter_matches_uuid_or_stored_name():
     assert r.json()["count"] == 1
     assert len(execute_calls) == 1
     q, params = execute_calls[0]
-    assert "site_id = %s OR site_id IN (SELECT name FROM sites WHERE id::text = %s)" in q
+    assert (
+        "site_id = %s OR site_id IN (SELECT name FROM sites WHERE id::text = %s)" in q
+    )
     assert params is not None
     # date range, then the same site key twice for (direct match OR subquery match)
     assert list(params)[0:2] == [date(2024, 1, 1), date(2024, 1, 31)]
@@ -262,7 +281,9 @@ def test_download_faults_200_csv():
         },
     ]
     conn = _mock_conn(fetchall=rows)
-    with patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn
+    ):
         r = client.get(
             "/download/faults?start_date=2024-01-01&end_date=2024-01-31&format=csv"
         )
@@ -290,7 +311,9 @@ def test_download_faults_200_json():
         },
     ]
     conn = _mock_conn(fetchall=rows)
-    with patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn
+    ):
         r = client.get(
             "/download/faults?start_date=2024-01-01&end_date=2024-01-31&format=json"
         )

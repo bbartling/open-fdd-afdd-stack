@@ -25,6 +25,7 @@ def _mock_selene(handler) -> SeleneClient:
     return SeleneClient(
         "http://selene.local:8080",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
+        owns_client=True,
     )
 
 

@@ -51,4 +51,3 @@ def test_rag_index_get_section_by_source():
     row = idx.get_section("docs/operations/mcp_rag_service.md")
     assert row["source"] == "docs/operations/mcp_rag_service.md"
     assert "--with-mcp-rag" in row["content"]
-

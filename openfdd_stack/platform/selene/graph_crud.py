@@ -98,13 +98,20 @@ def _upsert_by_external_id(
 ) -> dict[str, Any] | None:
     """Shared upsert primitive used by site/equipment/point sync helpers.
 
-    ``properties`` must already include ``external_id`` under
-    :data:`EXTERNAL_ID_PROP`. Stale keys (present on the existing node but not
-    in ``properties``) are removed so the graph doesn't accumulate stale fields
-    after a rename. On any Selene error, logs a warning with ``op_name`` +
-    ``external_id`` + full traceback and returns ``None`` \u2014 the caller has
-    already committed to Postgres.
+    The helper owns the ``external_id`` invariant: it writes ``external_id``
+    onto ``properties`` before sending so callers can't silently drift a
+    node's key away from the value used to locate it. Stale keys (present on
+    the existing node but not in ``properties``) are removed so the graph
+    doesn't accumulate stale fields after a rename.
+
+    On any Selene error, logs a warning with ``op_name`` + ``external_id`` +
+    full traceback and returns ``None`` \u2014 the caller has already committed
+    to Postgres.
     """
+    # Enforce the single-key invariant at the persistence boundary so caller
+    # mistakes can't create orphans. Mutates the dict in place \u2014 call sites
+    # build fresh property dicts per mutation, so this is safe.
+    properties[EXTERNAL_ID_PROP] = external_id
     try:
         existing = _find_by_external_id(client, label, external_id)
         if existing is None:
@@ -154,14 +161,19 @@ def _delete_by_external_id(
 
 
 def _flatten_metadata(metadata: Any) -> str | None:
-    """Serialize a JSON-able metadata field to a string for Selene's flat property model."""
+    """Serialize a metadata field to a string for Selene's flat property model.
+
+    Preserves JSON containers \u2014 including an explicitly empty ``{}`` or ``[]``
+    \u2014 so callers can distinguish "absent metadata" (``None`` \u2192 property not
+    written) from "explicit empty JSON value" (written as ``"{}"``). Postgres
+    defaults to ``{}`` for the ``metadata`` jsonb column; the Selene-2.3a
+    behaviour wrote that as ``metadata_json="{}"`` and we preserve it.
+    """
     if metadata is None:
         return None
     if isinstance(metadata, str):
         return metadata or None
     if isinstance(metadata, (dict, list)):
-        if not metadata:
-            return None
         return json.dumps(metadata)
     return str(metadata)
 

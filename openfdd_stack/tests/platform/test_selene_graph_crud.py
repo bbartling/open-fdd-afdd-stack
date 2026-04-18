@@ -468,3 +468,98 @@ def test_upsert_equipment_returns_none_and_logs_on_selene_error(caplog):
             result = upsert_equipment(client, {"id": "x", "site_id": "s", "name": "y"})
     assert result is None
     assert any("selene upsert_equipment" in rec.message for rec in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Invariants locked by PR #13 review feedback
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_site_serializes_empty_metadata_as_empty_json():
+    """Postgres `metadata jsonb DEFAULT '{}'` must round-trip as metadata_json='{}'.
+
+    Regression guard for the 2.3b refactor \u2014 2.3a did serialize empty dicts so
+    downstream Selene consumers could distinguish "metadata configured but
+    empty" from "metadata absent".
+    """
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"nodes": [], "total": 0})
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            201,
+            json={
+                "id": 1,
+                "labels": [SITE_LABEL],
+                "properties": captured["body"]["properties"],
+            },
+        )
+
+    with _mock_client(handler) as client:
+        upsert_site(client, {"id": "x", "name": "HQ", "metadata": {}})
+
+    assert captured["body"]["properties"]["metadata_json"] == "{}"
+
+
+def test_upsert_site_skips_metadata_when_none():
+    """None (column NULL or absent) must NOT write metadata_json."""
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"nodes": [], "total": 0})
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            201,
+            json={
+                "id": 1,
+                "labels": [SITE_LABEL],
+                "properties": captured["body"]["properties"],
+            },
+        )
+
+    with _mock_client(handler) as client:
+        upsert_site(client, {"id": "x", "name": "HQ", "metadata": None})
+
+    assert "metadata_json" not in captured["body"]["properties"]
+
+
+def test_upsert_enforces_external_id_invariant():
+    """Even if a hypothetical caller omits external_id from the properties dict,
+    the helper must write it so subsequent lookups by id succeed.
+
+    Guards against future callers (likely copy-paste on new labels) drifting
+    the persisted external_id away from the one used to locate the node.
+    """
+    from openfdd_stack.platform.selene.graph_crud import (
+        _upsert_by_external_id,
+    )
+
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"nodes": [], "total": 0})
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            201,
+            json={
+                "id": 1,
+                "labels": ["widget"],
+                "properties": captured["body"]["properties"],
+            },
+        )
+
+    with _mock_client(handler) as client:
+        # Deliberately omit external_id from the properties dict.
+        _upsert_by_external_id(
+            client,
+            "widget",
+            "my-external-id",
+            {"name": "only this"},
+            op_name="test",
+        )
+
+    assert captured["body"]["properties"][EXTERNAL_ID_PROP] == "my-external-id"

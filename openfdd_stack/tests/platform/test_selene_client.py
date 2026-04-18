@@ -257,6 +257,74 @@ def test_gql_non_dict_body_raises_selene_error():
             client.gql("MATCH (n) RETURN n")
 
 
+def test_export_rdf_returns_raw_turtle_body():
+    """``/graph/rdf`` returns text/turtle — no JSON decode should be attempted."""
+    ttl_body = (
+        "@prefix brick: <https://brickschema.org/schema/Brick#> .\n"
+        ":default a brick:Site .\n"
+    )
+
+    def h(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/graph/rdf"
+        assert request.url.params["format"] == "turtle"
+        assert request.url.params["graphs"] == "all"
+        assert request.headers["Accept"] == "text/turtle"
+        return httpx.Response(
+            200, content=ttl_body.encode(), headers={"content-type": "text/turtle"}
+        )
+
+    with _make(h) as client:
+        out = client.export_rdf()
+    assert out == ttl_body
+
+
+def test_export_rdf_honours_format_and_graphs_params():
+    def h(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["format"] == "ntriples"
+        assert request.url.params["graphs"] == "brick-only"
+        # Accept header should track the requested format, not be pinned to turtle.
+        assert request.headers["Accept"] == "application/n-triples"
+        return httpx.Response(200, content=b"<s> <p> <o> .\n")
+
+    with _make(h) as client:
+        client.export_rdf(rdf_format="ntriples", graphs="brick-only")
+
+
+def test_export_rdf_does_not_override_accept_for_unknown_format():
+    """Unknown rdf_format → fall through to the client default Accept header.
+
+    The server still honors the ``?format=`` query param, so the request is
+    semantically correct; this just confirms we don't pin a wrong RDF media
+    type that would force a 406 from Selene.
+    """
+
+    def h(request: httpx.Request) -> httpx.Response:
+        # Must NOT be pinned to any of the RDF-specific types.
+        assert request.headers["Accept"] not in {
+            "text/turtle",
+            "application/n-triples",
+            "application/n-quads",
+        }
+        assert request.url.params["format"] == "jsonld"
+        return httpx.Response(
+            200,
+            content=b'{"@context":{}}',
+            headers={"content-type": "application/ld+json"},
+        )
+
+    with _make(h) as client:
+        client.export_rdf(rdf_format="jsonld")
+
+
+def test_export_rdf_maps_server_errors_to_typed_exception():
+    def h(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "export failed"})
+
+    with _make(h) as client:
+        with pytest.raises(SeleneError):
+            client.export_rdf()
+
+
 def test_ts_write_non_dict_body_raises_selene_error():
     def h(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[1, 2, 3])

@@ -17,6 +17,10 @@ from openfdd_stack.platform.selene.exceptions import (
     SeleneQueryError,
     SeleneValidationError,
 )
+from openfdd_stack.platform.selene.column_map import (
+    build_column_map,
+    list_equipment_types,
+)
 from openfdd_stack.platform.selene.graph_config import (
     SELENE_CONFIG_LABEL,
     SeleneConfigStore,
@@ -64,4 +68,6 @@ __all__ = [
     "canonical_name",
     "canonical_bas_path",
     "is_canonical",
+    "build_column_map",
+    "list_equipment_types",
 ]

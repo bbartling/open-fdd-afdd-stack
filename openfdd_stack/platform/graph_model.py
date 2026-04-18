@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from openfdd_stack.platform.config import get_platform_settings
+from openfdd_stack.platform.config import get_platform_settings, is_selene_backend
 from openfdd_stack.platform.database import get_conn
 
 BACNET_NS = "http://data.ashrae.org/bacnet/2020#"
@@ -173,11 +173,6 @@ def _ensure_graph() -> Any:
         return _graph
 
 
-def _use_selene_backend() -> bool:
-    """True when OFDD_STORAGE_BACKEND=selene; callers short-circuit the rdflib path."""
-    return getattr(get_platform_settings(), "storage_backend", "timescale") == "selene"
-
-
 def _selene_config_store():
     """Build a Selene config store + client; caller is responsible for closing."""
     from openfdd_stack.platform.selene import (
@@ -198,7 +193,7 @@ def get_config_from_graph() -> dict:
     (``config.get_platform_settings``) treats this as "no overlay" and falls
     back to env / code defaults.
     """
-    if _use_selene_backend():
+    if is_selene_backend():
         from openfdd_stack.platform.selene.exceptions import SeleneError
 
         try:
@@ -251,7 +246,7 @@ def set_config_in_graph(config: dict) -> None:
     node in SeleneDB. Raises on failure \u2014 unlike reads, writes must be
     observable to the caller (PUT /config contract).
     """
-    if _use_selene_backend():
+    if is_selene_backend():
         # Backend parity: rdflib branch silently ignores non-RDF-backed keys
         # (the for-loop below gates on CONFIG_KEY_TO_PREDICATE). Match that
         # behavior so callers passing a broader dict don't persist extras to
@@ -306,7 +301,7 @@ def load_from_file() -> None:
     node is seeded on first write via ``get_platform_settings()`` +
     ``set_config_overlay()``.
     """
-    if _use_selene_backend():
+    if is_selene_backend():
         return
 
     path = _get_ttl_path()
@@ -487,7 +482,7 @@ def write_ttl_to_file() -> tuple[bool, str | None]:
     error so callers (lifespan, sync loop) don't misreport health.
     """
     global _last_serialization_ok, _last_serialization_error, _last_serialization_at
-    if _use_selene_backend():
+    if is_selene_backend():
         with _serialization_lock:
             _last_serialization_ok = True
             _last_serialization_error = None
@@ -624,7 +619,7 @@ def start_sync_thread() -> None:
     No-op when ``OFDD_STORAGE_BACKEND=selene`` \u2014 SeleneDB handles persistence
     internally so there's no in-process graph to sync.
     """
-    if _use_selene_backend():
+    if is_selene_backend():
         return
 
     global _sync_thread

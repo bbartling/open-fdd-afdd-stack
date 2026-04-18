@@ -1,16 +1,22 @@
 """Platform configuration.
 
-Runtime config is built from **Pydantic env** (``OFDD_*`` / ``stack/.env``) plus the **RDF overlay**
-(``data_model.ttl`` / PUT /config). The overlay is applied on top of env for graph-backed keys.
+Runtime config is built from **Pydantic env** (``OFDD_*`` / ``stack/.env``)
+plus the **RDF / graph overlay** (``data_model.ttl`` or the
+``:ofdd_platform_config`` Selene node, populated via PUT /config).
 
-**Exception:** ``OFDD_BACNET_SERVER_URL`` in the process environment, when set, **always wins** over
-``ofdd:bacnetServerUrl`` in the graph. The TTL often carries ``http://localhost:8080`` for local dev;
-that would break Docker (bridge → ``localhost`` is the container, not the host). The DIY gateway
-typically runs with ``network_mode: host`` — it is **not** on the same Docker bridge as ``api`` /
-``frontend``; reachability is **host routing / firewall**, not ordinary sibling-container DNS.
+Merge order in :func:`get_platform_settings`: pydantic reads env first
+(``PlatformSettings()`` constructor), then ``set_config_overlay`` runs
+``setattr`` on the settings instance for every known overlay key —
+which means **the overlay wins over env for overlapping keys**. That
+pattern has been the historical behaviour and lets operators set
+``rule_interval_hours`` etc. from the Config UI without touching
+``stack/.env``. The legacy ``OFDD_BACNET_SERVER_URL`` env-override
+(which used to win over the graph) was removed in Phase 2.5d when the
+diy-bacnet-server path retired; rusty-bacnet is embedded and binds
+``OFDD_BACNET_INTERFACE`` / ``OFDD_BACNET_PORT`` via normal pydantic
+env precedence.
 """
 
-import os
 from typing import Optional
 
 try:
@@ -126,12 +132,15 @@ class PlatformSettings(BaseSettings):
 
 
 def get_platform_settings() -> PlatformSettings:
-    """Merge RDF overlay onto env-backed settings.
+    """Merge RDF/graph overlay onto env-backed settings.
 
-    The RDF/graph config (``set_config_overlay``) contributes to the
-    merged view for keys the settings class knows about; anything
-    else is silently dropped. Env wins implicitly because pydantic
-    reads env first and the overlay only sets attributes that exist.
+    Pydantic reads env in ``PlatformSettings()``; then the overlay's
+    ``setattr`` calls **override** env for the fields the overlay
+    covers. Operators rely on this order so the Config UI (which
+    writes to the overlay) can change things like
+    ``rule_interval_hours`` without a container restart. Keys the
+    settings class doesn't know about are silently dropped so an
+    unmapped RDF key never crashes boot.
     """
     s = PlatformSettings()
     overlay = get_config_overlay()

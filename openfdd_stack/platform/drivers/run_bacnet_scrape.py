@@ -16,15 +16,27 @@ Container entrypoint (unchanged CLI shape so docker-compose keeps
 working): ``python -m openfdd_stack.platform.drivers.run_bacnet_scrape
 --loop``.
 
-Exit behaviour:
+Failure policy:
 
 - SIGTERM / SIGINT → finish the current scrape, close transport,
   exit 0.
-- Fatal transport error (can't bind UDP, can't reach Selene) →
-  log and exit non-zero so the container restarts per compose
-  policy.
-- Per-device scrape failures are tolerated by
-  :class:`BacnetScraper.scrape_once` and do not crash the loop.
+- Transport construction failure (can't bind UDP, bad config) at
+  startup is **fatal** — the process exits non-zero so the compose
+  restart policy can recover (or the operator fixes config and
+  restarts).
+- Transient Selene / network hiccups during the loop are **tolerated**
+  — the cycle logs a warning and returns an empty ``ScrapeResult``
+  so brief outages don't churn the container. One-shot mode returns
+  success on an empty result because "no plan yet" is a normal
+  greenfield state, not an error.
+- Per-device scrape failures are already caught inside
+  :meth:`BacnetScraper.scrape_once` and tallied as
+  ``device_failures``; they never escape here.
+
+The ``OFDD_BACNET_SCRAPE_ENABLED`` flag short-circuits the loop
+before any transport construction. Set to ``false`` to disable
+scraping entirely (e.g. during maintenance) without tearing down
+the container.
 """
 
 from __future__ import annotations
@@ -196,6 +208,18 @@ async def _main_async(args: argparse.Namespace) -> int:
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     _install_signal_handlers(loop, stop_event)
+
+    # Flag gate: ``OFDD_BACNET_SCRAPE_ENABLED=false`` short-circuits
+    # before any transport construction so disabling the scraper
+    # during maintenance is as cheap as possible. In --loop mode
+    # we still wait on ``stop_event`` so SIGTERM returns cleanly
+    # without busy-spinning.
+    settings = get_platform_settings()
+    if not getattr(settings, "bacnet_scrape_enabled", True):
+        logger.warning("bacnet scrape: disabled via OFDD_BACNET_SCRAPE_ENABLED=false")
+        if args.loop:
+            await stop_event.wait()
+        return 0
 
     if not args.loop:
         # One-shot mode: run a single cycle, exit with the result's

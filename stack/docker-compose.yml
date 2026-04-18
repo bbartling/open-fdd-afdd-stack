@@ -17,13 +17,15 @@ x-log-opts: &log-opts
   max-file: "${OFDD_LOG_MAX_FILES:-3}"
 
 services:
-  # BACnet/IP gateway — always-on server, JSON-RPC on 8080.
-  # Optional BACnet2MQTT: set env in stack/.env or bootstrap with --with-mqtt-bridge (broker + bridge wiring).
-  # BACnet scraper — rusty-bacnet embedded driver (Phase 2.5d).
+  # BACnet scraper — rusty-bacnet embedded driver (Phase 2.5d rewrite).
   # Binds UDP/47808 directly on the host (via ``network_mode: host``)
   # and reads :bacnet_object→:point bindings from SeleneDB each interval.
-  # No separate gateway container — diy-bacnet-server is gone.
+  # Writes samples via ``ts_write`` to SeleneDB, so the scraper is
+  # gated on the same ``selene`` profile — starting it without Selene
+  # would be a no-op (no plan to load, nowhere to write).
   bacnet-scraper:
+    profiles:
+      - selene
     build:
       context: ..
       dockerfile: stack/Dockerfile.bacnet_scraper
@@ -56,6 +58,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      selene:
+        condition: service_started
     restart: unless-stopped
     logging:
       driver: json-file

@@ -30,17 +30,49 @@ SITE_LABEL = "site"
 EXTERNAL_ID_PROP = "external_id"
 
 
+_PAGE_SIZE = 100
+# Safety valve: stop walking after this many pages even if server misreports total.
+# 100 pages × 100 nodes = 10k nodes of a single label, well beyond any realistic
+# building-portfolio size. A runaway loop here would block every CRUD response.
+_MAX_PAGES = 100
+
+
 def _find_by_external_id(
     client: SeleneClient, label: str, external_id: str
 ) -> dict[str, Any] | None:
-    """Locate the single Selene node with this (label, external_id). Returns ``None`` if absent."""
-    body = client.list_nodes(label=label, limit=100)
-    nodes = body.get("nodes", []) or []
-    matches = [
-        n
-        for n in nodes
-        if (n.get("properties") or {}).get(EXTERNAL_ID_PROP) == external_id
-    ]
+    """Locate the single Selene node with this (label, external_id) across pages.
+
+    ``list_nodes`` caps at 1000 per request (and we use 100 for responsiveness);
+    a portfolio with more than 100 sites/equipment/points of one label would
+    miss matches on later pages if we only hit page 1. Walks pages until the
+    server-reported total is consumed, the page is short, or a safety cap
+    (10k nodes) hits.
+    """
+    matches: list[dict[str, Any]] = []
+    offset = 0
+    for _page in range(_MAX_PAGES):
+        body = client.list_nodes(label=label, limit=_PAGE_SIZE, offset=offset)
+        nodes = body.get("nodes", []) or []
+        matches.extend(
+            n
+            for n in nodes
+            if (n.get("properties") or {}).get(EXTERNAL_ID_PROP) == external_id
+        )
+        total = body.get("total")
+        offset += len(nodes)
+        if not nodes or len(nodes) < _PAGE_SIZE:
+            break
+        if total is not None and offset >= total:
+            break
+    else:
+        logger.warning(
+            "_find_by_external_id hit page cap (%d pages) for %s=%s on :%s; "
+            "some nodes may be beyond the walk.",
+            _MAX_PAGES,
+            EXTERNAL_ID_PROP,
+            external_id,
+            label,
+        )
     if not matches:
         return None
     if len(matches) > 1:

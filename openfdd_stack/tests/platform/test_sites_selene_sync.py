@@ -24,6 +24,16 @@ from openfdd_stack.platform.api.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _stub_ttl_sync():
+    """Keep these tests hermetic: the real ``sync_ttl_to_file`` schedules a
+    background Timer and touches the filesystem, which can leak threads and
+    introduce cross-test flake. Matches the pattern in ``test_crud_api.py``.
+    """
+    with patch("openfdd_stack.platform.api.sites.sync_ttl_to_file"):
+        yield
+
+
 def _mock_conn(fetchone=None, fetchall=None):
     cursor = MagicMock()
     cursor.execute.return_value = None

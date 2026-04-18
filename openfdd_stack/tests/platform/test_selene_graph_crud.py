@@ -241,3 +241,45 @@ def test_delete_site_returns_false_and_logs_on_selene_error(caplog):
         with caplog.at_level("WARNING"):
             assert delete_site(client, "x") is False
     assert any("selene delete_site failed" in rec.message for rec in caplog.records)
+
+
+def test_upsert_site_finds_match_beyond_first_page():
+    """Portfolios with >100 nodes of a label must still locate the match.
+
+    Regression test for the original single-page query — the target node
+    appears on page 2 and we expect a PUT to its id.
+    """
+    call_log: list[tuple[str, str]] = []
+    # Build 100 filler nodes for page 1, then the target at the start of page 2.
+    page1 = [
+        {
+            "id": i,
+            "labels": [SITE_LABEL],
+            "properties": {EXTERNAL_ID_PROP: f"other-{i}"},
+        }
+        for i in range(100)
+    ]
+    page2 = [
+        {
+            "id": 9001,
+            "labels": [SITE_LABEL],
+            "properties": {EXTERNAL_ID_PROP: "target", "name": "Target"},
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        call_log.append((request.method, str(request.url)))
+        if request.method == "GET" and request.url.path == "/nodes":
+            offset = int(request.url.params.get("offset", "0"))
+            if offset == 0:
+                return httpx.Response(200, json={"nodes": page1, "total": 101})
+            return httpx.Response(200, json={"nodes": page2, "total": 101})
+        assert request.url.path == "/nodes/9001", request.url.path
+        return httpx.Response(200, json={"id": 9001, "labels": [SITE_LABEL]})
+
+    with _mock_client(handler) as client:
+        upsert_site(client, {"id": "target", "name": "New Name"})
+
+    # At least two GET pages were walked.
+    get_pages = [c for c in call_log if c[0] == "GET"]
+    assert len(get_pages) >= 2

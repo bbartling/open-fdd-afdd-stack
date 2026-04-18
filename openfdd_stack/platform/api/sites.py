@@ -32,6 +32,7 @@ def _selene_upsert_site(row: dict) -> None:
     """Best-effort mirror of a sites row into SeleneDB. Swallows all errors."""
     if not _selene_enabled():
         return
+    site_id = row.get("id")
     try:
         from openfdd_stack.platform.selene import (
             make_selene_client_from_settings,
@@ -40,10 +41,12 @@ def _selene_upsert_site(row: dict) -> None:
 
         with make_selene_client_from_settings() as client:
             upsert_site(client, dict(row))
-    except Exception as exc:  # noqa: BLE001 \u2014 CRUD must succeed regardless
+    except Exception:  # noqa: BLE001 \u2014 CRUD must succeed regardless
         logger.warning(
-            "selene site sync skipped (%s); Postgres write remains authoritative.",
-            exc,
+            "selene site sync skipped for site_id=%s; Postgres write remains "
+            "authoritative.",
+            site_id,
+            exc_info=True,
         )
 
 
@@ -58,10 +61,12 @@ def _selene_delete_site(site_id: str) -> None:
 
         with make_selene_client_from_settings() as client:
             delete_site(client, site_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.warning(
-            "selene site delete sync skipped (%s); Postgres deletion stands.",
-            exc,
+            "selene site delete sync skipped for site_id=%s; Postgres "
+            "deletion stands.",
+            site_id,
+            exc_info=True,
         )
 
 
@@ -94,7 +99,7 @@ def create_site(body: SiteCreate):
     try:
         sync_ttl_to_file()
     except Exception:
-        pass  # CRUD succeeds even if TTL sync fails (e.g. read-only filesystem)
+        logger.warning("sync_ttl_to_file failed after site create", exc_info=True)
     _selene_upsert_site(dict(row))
     emit(TOPIC_CRUD_SITE + ".created", {"id": str(row["id"]), "name": row["name"]})
     return SiteRead.model_validate(dict(row))
@@ -155,7 +160,7 @@ def update_site(site_id: UUID, body: SiteUpdate):
     try:
         sync_ttl_to_file()
     except Exception:
-        pass
+        logger.warning("sync_ttl_to_file failed after site update", exc_info=True)
     _selene_upsert_site(dict(row))
     emit(TOPIC_CRUD_SITE + ".updated", {"id": str(site_id)})
     return SiteRead.model_validate(dict(row))
@@ -189,7 +194,7 @@ def delete_site(site_id: UUID):
     try:
         sync_ttl_to_file()
     except Exception:
-        pass
+        logger.warning("sync_ttl_to_file failed after site delete", exc_info=True)
     _selene_delete_site(site_id_str)
     emit(TOPIC_CRUD_SITE + ".deleted", {"id": site_id_str})
     return {"status": "deleted"}

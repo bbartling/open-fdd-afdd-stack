@@ -78,7 +78,7 @@ git clone https://github.com/bbartling/open-fdd.git
 
 ### Standard HTTP bootstrap (no TLS) and app login
 
-The `--bacnet-address` value is the static bind address for BACnet, which is the usual setup for BACnet/IP on operations technology (OT) LANs. Bootstrap supports **dual-NIC** hosts: use this address on the OT interface; your other interface can use DHCP for outbound internet access.
+The `--bacnet-address` value is the static **BACnet/IP (UDP)** bind for **bacpypes3** in diy-bacnet-server (**`OFDD_BACNET_ADDRESS`**, e.g. `192.168.204.18/24:47808`), which is the usual setup on operations technology (OT) LANs. It is **not** the same thing as **`OFDD_BACNET_SERVER_URL`**: the DIY gateway’s HTTP **:8080** listens on the **Docker host**, so the API and scraper default to **`http://host.docker.internal:8080`** (see Compose / `stack/.env`). Bootstrap supports **dual-NIC** hosts: use `--bacnet-address` on the OT interface; your other interface can use DHCP for outbound internet access.
 
 ```bash
 cd open-fdd-afdd-stack
@@ -111,7 +111,10 @@ printf '%s' 'YourSecurePassword' | ./scripts/bootstrap.sh \
 
 ```bash
 ./scripts/bootstrap.sh --doctor
+./scripts/bootstrap.sh --verify
 ```
+
+If BACnet shows **API→gateway** timeout but **`curl http://127.0.0.1:8080/server_hello`** works on the host, try **`./scripts/bootstrap.sh --verify --autofix-bacnet`** (opt-in hairpin repair) or set **`OFDD_BACNET_SERVER_URL`** in `stack/.env` per [BACnet overview](docs/bacnet/overview.md).
 
 Also available is the **partial stack** mode: `./scripts/bootstrap.sh --mode collector`, `--mode model`, or `--mode engine`. See the `Docs` below for more information.
 
@@ -239,6 +242,32 @@ MCP / RAG Service (openfdd_mcp_rag:8090)
         v
 Open-FDD AFDD Stack (API + DB + BACnet)
 ```
+
+### Open Claw Model Routing Prompt
+
+Just drop this prompt right into Open Claw—it’s helped me avoid hitting API limits. I think it encourages the framework to use simple, low-cost models for easier tasks, while reserving more advanced (and expensive) models only for the tasks that truly require deeper reasoning.
+
+
+```text
+## Model Routing Policy
+When analyzing test results, classify each task before processing:
+SIMPLE (use primary model):
+- Pass/fail test results
+- HTTP status code errors (404, 500, timeout)
+- Missing UI elements or broken selectors
+- Test environment setup failures
+- Syntax errors or import failures
+COMPLEX (use thinking model)
+- Unexpected behavior that passed but shouldn't have
+- Race conditions or timing-dependent failures
+- Security vulnerabilities
+- Performance degradation patterns
+- Failures that span multiple components or files
+Default to SIMPLE unless the test result shows ambiguous or multi-layered behavior.
+Always classify first, then process. Never use the thinking model for a task that fits the SIMPLE list.
+
+```
+
 
 ---
 

@@ -85,7 +85,8 @@ Used to build the PUT /config body at bootstrap; thereafter config is in the gra
 | `OFDD_LOOKBACK_DAYS` | 3 | Lookback window for timeseries. |
 | `OFDD_RULES_DIR` | stack/rules | YAML rules directory (hot reload). |
 | `OFDD_BRICK_TTL_DIR` | config | Brick TTL directory. |
-| `OFDD_BACNET_SERVER_URL` | — | diy-bacnet-server URL (e.g. http://localhost:8080). |
+| `OFDD_BACNET_ADDRESS` | — | BACnet/IP **UDP** bind for bacpypes3 / diy-bacnet-server (e.g. `192.168.1.10/24:47808`). Distinct from HTTP below. |
+| `OFDD_BACNET_SERVER_URL` | — | diy-bacnet-server **HTTP** URL for JSON-RPC (API/scraper: usually `http://host.docker.internal:8080`; host scripts: `http://127.0.0.1:8080`). |
 | `OFDD_BACNET_SITE_ID` | default | Site to tag when scraping. |
 | `OFDD_BACNET_GATEWAYS` | — | JSON array for central aggregator. |
 | `OFDD_BACNET_SCRAPE_ENABLED` | true | Enable BACnet scraper. |

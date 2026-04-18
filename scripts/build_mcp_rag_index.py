@@ -249,7 +249,7 @@ def main() -> int:
         er = extra_docs.resolve()
         if not er.is_dir():
             continue
-        repo_slug = er.parent.name
+        repo_slug = er.parent.name or er.name or "vendor-docs"
         for md in sorted(er.rglob("*.md")):
             if "_build" in md.parts or md.name == "404.md":
                 continue

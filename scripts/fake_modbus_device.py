@@ -17,7 +17,7 @@ Design goals
 
 Example
 -------
-  python openclaw/bench/scripts/fake_modbus_device.py --host 127.0.0.1 --port 1502 --unit-id 1
+  python scripts/fake_modbus_device.py --host 127.0.0.1 --port 1502 --unit-id 1
 
 Then point Open-FDD Modbus config at host=127.0.0.1, port=1502, unit_id=1.
 """
@@ -299,7 +299,8 @@ class ModbusTCPHandler(socketserver.BaseRequestHandler):
             if not header:
                 return
             tx_id, proto_id, length, unit_id = struct.unpack(">HHHB", header)
-            if proto_id != 0 or length < 2:
+            # MBAP length = unit id (1) + PDU; Modbus TCP PDU is capped (reject fuzzed huge reads).
+            if proto_id != 0 or length < 2 or length > 254:
                 return
             pdu = self._recv_exact(length - 1)
             if not pdu:
@@ -331,7 +332,7 @@ class ModbusTCPHandler(socketserver.BaseRequestHandler):
         while len(data) < n:
             chunk = self.request.recv(n - len(data))
             if not chunk:
-                return None if not data else data
+                return None
             data += chunk
         return data
 
@@ -417,12 +418,8 @@ def main() -> int:
     with server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        try:
-            while not stop.is_set():
-                time.sleep(0.5)
-        finally:
-            server.shutdown()
-            server.server_close()
+        while not stop.is_set():
+            time.sleep(0.5)
     return 0
 
 

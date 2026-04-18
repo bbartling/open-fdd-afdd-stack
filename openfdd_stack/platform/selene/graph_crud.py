@@ -32,6 +32,14 @@ EQUIPMENT_LABEL = "equipment"
 POINT_LABEL = "point"
 EXTERNAL_ID_PROP = "external_id"
 
+# Canonical edge labels for the Brick-style hierarchy + flow relationships.
+# contains: parent -> child (site > equipment > point, or site > point when
+# equipment_id is null). feeds: equipment -> downstream equipment (AHU feeds
+# VAV). Brick has both `feeds`/`isFedBy` as inverse properties; we normalise
+# to one direction (feeds) and route both Postgres columns to it.
+CONTAINS_EDGE = "contains"
+FEEDS_EDGE = "feeds"
+
 
 _PAGE_SIZE = 100
 # Safety valve: stop walking after this many pages even if server misreports total.
@@ -177,6 +185,120 @@ def _canonical_name_pair(raw: Any) -> tuple[str, str | None]:
     return canonical, display
 
 
+def _reconcile_single_edge(
+    client: SeleneClient,
+    *,
+    source_id: int,
+    edge_label: str,
+    direction: str,
+    target_label: str,
+    target_external_id: str | None,
+    op_name: str,
+) -> None:
+    """Ensure exactly one edge of ``edge_label`` exists in ``direction`` from ``source_id``.
+
+    Used for 1:1 FK-to-edge mappings (site -> equipment contains, equipment
+    -> point contains, equipment -> equipment feeds). Handles three cases:
+
+    - ``target_external_id`` is ``None``: delete any existing edges of this
+      label in this direction. The FK was cleared in Postgres.
+    - Target exists and edge already present with correct target: no-op.
+    - Otherwise: delete stale edges, create a fresh edge to the target.
+
+    ``direction`` is ``"outgoing"`` when the source is the FK holder
+    (equipment.site_id \u2192 equipment points OUT to site... wait, semantics
+    matter). Actually we want ``(:site)-[:contains]->(:equipment)`` regardless
+    of which row carries the FK. Callers pass ``direction="incoming"`` when
+    the edge points INTO the source (contains edges live on the parent,
+    arrive at the child).
+
+    All Selene errors are caught and logged; the Postgres write has already
+    committed.
+    """
+    try:
+        # Find existing edges of this label in the requested direction.
+        existing = client.get_node_edges(source_id).get("edges", []) or []
+        relevant = [
+            e
+            for e in existing
+            if e.get("label") == edge_label
+            and (
+                (direction == "outgoing" and e.get("source") == source_id)
+                or (direction == "incoming" and e.get("target") == source_id)
+            )
+        ]
+
+        if target_external_id is None:
+            # FK cleared: drop every matching edge.
+            for e in relevant:
+                try:
+                    client.delete_edge(e["id"])
+                except SeleneError:
+                    logger.warning(
+                        "%s: failed to delete stale edge %s",
+                        op_name,
+                        e.get("id"),
+                        exc_info=True,
+                    )
+            return
+
+        target = _find_by_external_id(client, target_label, target_external_id)
+        if target is None:
+            # Parent/peer not yet synced to Selene (expected during backfill
+            # ordering). Drop stale edges and bail \u2014 a subsequent upsert of
+            # the target will be followed by its own reconcile pass.
+            logger.info(
+                "%s: target :%s %s=%s not in Selene yet; skipping edge",
+                op_name,
+                target_label,
+                EXTERNAL_ID_PROP,
+                target_external_id,
+            )
+            for e in relevant:
+                try:
+                    client.delete_edge(e["id"])
+                except SeleneError:
+                    pass
+            return
+
+        target_id = target["id"]
+        # Edge already correct? No-op.
+        for e in relevant:
+            if (direction == "outgoing" and e.get("target") == target_id) or (
+                direction == "incoming" and e.get("source") == target_id
+            ):
+                # Drop any other stale edges sharing the label, keep this one.
+                for stale in relevant:
+                    if stale["id"] != e["id"]:
+                        try:
+                            client.delete_edge(stale["id"])
+                        except SeleneError:
+                            pass
+                return
+
+        # Need a fresh edge. Drop all stale ones first, then create.
+        for e in relevant:
+            try:
+                client.delete_edge(e["id"])
+            except SeleneError:
+                pass
+
+        if direction == "outgoing":
+            client.create_edge(source_id, target_id, edge_label)
+        else:
+            client.create_edge(target_id, source_id, edge_label)
+    except SeleneError:
+        logger.warning(
+            "%s: edge reconciliation failed for %s \u2192 %s=%s; Postgres write "
+            "remains authoritative.",
+            op_name,
+            edge_label,
+            target_label,
+            target_external_id,
+            exc_info=True,
+        )
+
+
 def _flatten_metadata(metadata: Any) -> str | None:
     """Serialize a metadata field to a string for Selene's flat property model.
 
@@ -278,15 +400,64 @@ def _equipment_properties(row: dict[str, Any]) -> dict[str, Any]:
 def upsert_equipment(
     client: SeleneClient, row: dict[str, Any]
 ) -> dict[str, Any] | None:
-    """Upsert an ``:equipment`` node mirroring a Postgres equipment row."""
+    """Upsert an ``:equipment`` node mirroring a Postgres equipment row.
+
+    After node upsert, reconciles three FK \u2194 edge mappings:
+
+    - ``site_id`` \u2192 incoming ``contains`` edge from the parent site
+    - ``feeds_equipment_id`` \u2192 outgoing ``feeds`` edge to the downstream equipment
+    - ``fed_by_equipment_id`` \u2192 incoming ``feeds`` edge from the upstream equipment
+
+    Both Postgres FK columns route to the single ``feeds`` edge label
+    (Brick uses ``feeds``/``isFedBy`` as inverse properties; we normalise
+    to one direction per edge). Edge reconciliation is best-effort and
+    failures are logged.
+    """
     external_id = str(row["id"])
-    return _upsert_by_external_id(
+    node = _upsert_by_external_id(
         client,
         EQUIPMENT_LABEL,
         external_id,
         _equipment_properties(row),
         op_name="selene upsert_equipment",
     )
+    if node is None:
+        return None
+    node_id = node.get("id")
+    if not isinstance(node_id, int):
+        return node
+
+    site_id = row.get("site_id")
+    _reconcile_single_edge(
+        client,
+        source_id=node_id,
+        edge_label=CONTAINS_EDGE,
+        direction="incoming",
+        target_label=SITE_LABEL,
+        target_external_id=str(site_id) if site_id else None,
+        op_name="selene upsert_equipment",
+    )
+    feeds_id = row.get("feeds_equipment_id")
+    _reconcile_single_edge(
+        client,
+        source_id=node_id,
+        edge_label=FEEDS_EDGE,
+        direction="outgoing",
+        target_label=EQUIPMENT_LABEL,
+        target_external_id=str(feeds_id) if feeds_id else None,
+        op_name="selene upsert_equipment",
+    )
+    fed_by_id = row.get("fed_by_equipment_id")
+    _reconcile_single_edge(
+        client,
+        source_id=node_id,
+        edge_label=FEEDS_EDGE,
+        direction="incoming",
+        target_label=EQUIPMENT_LABEL,
+        target_external_id=str(fed_by_id) if fed_by_id else None,
+        op_name="selene upsert_equipment",
+    )
+    return node
 
 
 def delete_equipment(client: SeleneClient, equipment_id: UUID | str) -> bool:
@@ -355,15 +526,51 @@ def _point_properties(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def upsert_point(client: SeleneClient, row: dict[str, Any]) -> dict[str, Any] | None:
-    """Upsert a ``:point`` node mirroring a Postgres points row."""
+    """Upsert a ``:point`` node mirroring a Postgres points row.
+
+    After node upsert, attaches a single incoming ``contains`` edge from
+    the point's parent: the parent equipment when ``equipment_id`` is set,
+    otherwise the parent site. Only one parent edge so a point is never
+    double-counted by traversals.
+    """
     external_id = str(row["id"])
-    return _upsert_by_external_id(
+    node = _upsert_by_external_id(
         client,
         POINT_LABEL,
         external_id,
         _point_properties(row),
         op_name="selene upsert_point",
     )
+    if node is None:
+        return None
+    node_id = node.get("id")
+    if not isinstance(node_id, int):
+        return node
+
+    equipment_id = row.get("equipment_id")
+    site_id = row.get("site_id")
+    # Parent is equipment if set, otherwise site. Only one contains edge.
+    if equipment_id:
+        _reconcile_single_edge(
+            client,
+            source_id=node_id,
+            edge_label=CONTAINS_EDGE,
+            direction="incoming",
+            target_label=EQUIPMENT_LABEL,
+            target_external_id=str(equipment_id),
+            op_name="selene upsert_point",
+        )
+    else:
+        _reconcile_single_edge(
+            client,
+            source_id=node_id,
+            edge_label=CONTAINS_EDGE,
+            direction="incoming",
+            target_label=SITE_LABEL,
+            target_external_id=str(site_id) if site_id else None,
+            op_name="selene upsert_point",
+        )
+    return node
 
 
 def delete_point(client: SeleneClient, point_id: UUID | str) -> bool:

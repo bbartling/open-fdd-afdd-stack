@@ -310,6 +310,18 @@ class SeleneClient:
             params["label"] = label
         return self._request_json("GET", "/edges", params=params)
 
+    def get_node_edges(self, node_id: int) -> dict[str, Any]:
+        """GET /nodes/{id}/edges. Returns ``{node_id, edges: [...], total}``.
+
+        The HTTP endpoint does not filter by direction or label server-side;
+        callers filter the returned list themselves.
+        """
+        return self._request_json("GET", f"/nodes/{node_id}/edges")
+
+    def delete_edge(self, edge_id: int) -> None:
+        """DELETE /edges/{id}. 204 on success; raises :class:`SeleneNotFound` on miss."""
+        self._request("DELETE", f"/edges/{edge_id}")
+
     # ------------------------------------------------------------------
     # Time-series
     # ------------------------------------------------------------------

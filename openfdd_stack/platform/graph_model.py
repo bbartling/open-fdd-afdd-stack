@@ -204,7 +204,7 @@ def get_config_from_graph() -> dict:
         try:
             store, client = _selene_config_store()
             try:
-                return store.read_config()
+                raw = store.read_config()
             finally:
                 client.close()
         except SeleneError as exc:
@@ -216,6 +216,11 @@ def get_config_from_graph() -> dict:
                 exc,
             )
             return {}
+        # Backend parity: only expose the RDF-backed config keys even if the
+        # ofdd_platform_config node carries extras (manual GQL edits, future
+        # property bleed). Prevents arbitrary property \u2192 settings injection via
+        # get_platform_settings()'s hasattr-based overlay merge.
+        return {k: v for k, v in raw.items() if k in CONFIG_KEY_TO_PREDICATE}
 
     from rdflib import Literal, Namespace, URIRef
 
@@ -247,9 +252,14 @@ def set_config_in_graph(config: dict) -> None:
     observable to the caller (PUT /config contract).
     """
     if _use_selene_backend():
+        # Backend parity: rdflib branch silently ignores non-RDF-backed keys
+        # (the for-loop below gates on CONFIG_KEY_TO_PREDICATE). Match that
+        # behavior so callers passing a broader dict don't persist extras to
+        # Selene that the rdflib path would have dropped.
+        filtered = {k: v for k, v in config.items() if k in CONFIG_KEY_TO_PREDICATE}
         store, client = _selene_config_store()
         try:
-            store.write_config(config)
+            store.write_config(filtered)
         finally:
             client.close()
         return

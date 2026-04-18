@@ -30,8 +30,8 @@ def _mock_selene(handler) -> SeleneClient:
 
 def _force_selene_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OFDD_STORAGE_BACKEND", "selene")
-    # get_platform_settings() caches via Pydantic; it re-reads env on each call.
-    # No invalidation needed unless the test also runs the timescale branch.
+    # get_platform_settings() constructs fresh PlatformSettings on each call
+    # (no caching), so monkeypatched env is picked up without invalidation.
 
 
 def test_load_from_file_is_noop_when_selene_backend(monkeypatch: pytest.MonkeyPatch):
@@ -186,3 +186,135 @@ def test_timescale_backend_still_uses_rdflib(monkeypatch: pytest.MonkeyPatch):
         # get_config_from_graph exercises the rdflib branch; no selene client used.
         graph_model_mod.get_config_from_graph()
     ensure.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Backend-parity: only RDF-backed keys (CONFIG_KEY_TO_PREDICATE) are exposed
+# to callers or persisted. Prevents arbitrary Selene properties from leaking
+# into settings overlay (and sensitive fields from being written back).
+# ---------------------------------------------------------------------------
+
+
+def test_get_config_from_graph_filters_non_whitelisted_keys(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _force_selene_backend(monkeypatch)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "nodes": [
+                    {
+                        "id": 1,
+                        "labels": [SELENE_CONFIG_LABEL],
+                        "properties": {
+                            "rule_interval_hours": 3.0,  # whitelisted
+                            "api_key": "SECRET",  # not in CONFIG_KEY_TO_PREDICATE
+                            "jwt_secret": "NO",  # not in CONFIG_KEY_TO_PREDICATE
+                            "storage_backend": "selene",  # not in CONFIG_KEY_TO_PREDICATE
+                        },
+                    }
+                ],
+                "total": 1,
+            },
+        )
+
+    client = _mock_selene(handler)
+    monkeypatch.setattr(
+        graph_model_mod,
+        "_selene_config_store",
+        lambda: (
+            __import__(
+                "openfdd_stack.platform.selene.graph_config",
+                fromlist=["SeleneConfigStore"],
+            ).SeleneConfigStore(client),
+            client,
+        ),
+    )
+
+    out = graph_model_mod.get_config_from_graph()
+    assert out == {"rule_interval_hours": 3.0}
+
+
+def test_set_config_in_graph_filters_non_whitelisted_keys(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _force_selene_backend(monkeypatch)
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"nodes": [], "total": 0})
+        import json as _json
+
+        seen["body"] = _json.loads(request.content)
+        return httpx.Response(
+            201,
+            json={
+                "id": 1,
+                "labels": [SELENE_CONFIG_LABEL],
+                "properties": seen["body"]["properties"],
+            },
+        )
+
+    client = _mock_selene(handler)
+    monkeypatch.setattr(
+        graph_model_mod,
+        "_selene_config_store",
+        lambda: (
+            __import__(
+                "openfdd_stack.platform.selene.graph_config",
+                fromlist=["SeleneConfigStore"],
+            ).SeleneConfigStore(client),
+            client,
+        ),
+    )
+
+    graph_model_mod.set_config_in_graph(
+        {
+            "rule_interval_hours": 3.0,
+            "api_key": "SECRET",
+            "jwt_secret": "NO",
+            "unknown_future_key": "drop_me",
+        }
+    )
+    # Only the whitelisted RDF-backed key must reach the wire.
+    assert seen["body"]["properties"] == {"rule_interval_hours": 3.0}
+
+
+def test_write_config_remove_properties_are_sorted():
+    """Deterministic ordering for easier log / snapshot comparison."""
+    import json as _json
+
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "nodes": [
+                        {
+                            "id": 5,
+                            "labels": [SELENE_CONFIG_LABEL],
+                            "properties": {
+                                "zulu_key": 1,
+                                "alpha_key": 2,
+                                "mike_key": 3,
+                                "lookback_days": 3,
+                            },
+                        }
+                    ],
+                    "total": 1,
+                },
+            )
+        seen["body"] = _json.loads(request.content)
+        return httpx.Response(200, json={"id": 5, "labels": [SELENE_CONFIG_LABEL]})
+
+    client = _mock_selene(handler)
+    from openfdd_stack.platform.selene.graph_config import SeleneConfigStore
+
+    SeleneConfigStore(client).write_config({"lookback_days": 7})
+    # Stale keys are zulu_key, alpha_key, mike_key — expect alphabetical:
+    assert seen["body"]["remove_properties"] == ["alpha_key", "mike_key", "zulu_key"]

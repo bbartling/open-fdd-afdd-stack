@@ -63,7 +63,9 @@ class SeleneConfigStore:
             node_id = nodes[0]["id"]
             existing_props = set((nodes[0].get("properties") or {}).keys())
             incoming_props = set(cleaned.keys())
-            remove = list(existing_props - incoming_props)
+            # Sort so the wire order is deterministic across runs (easier log
+            # diffing + snapshot testing).
+            remove = sorted(existing_props - incoming_props)
             return self._client.modify_node(
                 node_id,
                 set_properties=cleaned,

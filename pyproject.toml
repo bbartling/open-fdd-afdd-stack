@@ -9,7 +9,7 @@ version = "2.0.14"
 description = "Open-FDD AFDD platform — Docker, FastAPI, BACnet scrapers, Grafana (uses open-fdd from PyPI)"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 authors = [{ name = "Ben Bartling", email = "ben.bartling@gmail.com" }]
 dependencies = [
     # Pin to latest published engine on PyPI; bump lower bound after each open-fdd release.
@@ -33,6 +33,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# BACnet driver (rusty-bacnet: PyO3 bindings to the ASHRAE 135-2020 Rust stack).
+# Pinned to PyPI as the primary install path; for local co-development of the
+# driver, run `pip install -e ~/Development/rusty-bacnet/crates/rusty-bacnet`
+# after `pip install -e ".[dev]"` — the editable install wins precedence.
+bacnet = [
+    "rusty-bacnet>=0.1",
+]
 dev = [
     "pytest",
     "black[jupyter]",

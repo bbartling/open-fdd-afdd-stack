@@ -89,7 +89,13 @@ def test_build_ttl_point_with_modbus_config():
     point_id = uuid4()
     sites = [{"id": site_id, "name": "Site-M"}]
     equipment = []
-    mc = {"host": "192.168.1.10", "port": 502, "unit_id": 1, "address": 100, "function": "holding"}
+    mc = {
+        "host": "192.168.1.10",
+        "port": 502,
+        "unit_id": 1,
+        "address": 100,
+        "function": "holding",
+    }
     points = [
         {
             "id": point_id,
@@ -262,7 +268,12 @@ def test_build_ttl_includes_engineering_extension_and_s223_topology():
                     "mechanical": {"design_cfm": 5000},
                     "topology": {
                         "connection_points": [
-                            {"id": "inlet-1", "name": "Inlet", "type": "inlet", "medium": "air"}
+                            {
+                                "id": "inlet-1",
+                                "name": "Inlet",
+                                "type": "inlet",
+                                "medium": "air",
+                            }
                         ],
                         "connections": [
                             {

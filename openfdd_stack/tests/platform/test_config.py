@@ -40,7 +40,9 @@ def test_config_exposes_fdd_rule_settings():
             key in DEFAULT_PLATFORM_CONFIG
         ), f"DEFAULT_PLATFORM_CONFIG must include {key}"
     set_config_overlay({})
-    with patch("openfdd_stack.platform.api.config.get_config_from_graph", return_value={}):
+    with patch(
+        "openfdd_stack.platform.api.config.get_config_from_graph", return_value={}
+    ):
         result = get_config()
     assert result["rules_dir"] == "stack/rules"
     assert result["rule_interval_hours"] == 3.0
@@ -88,7 +90,9 @@ def test_get_config_returns_default_when_graph_empty(monkeypatch):
 
     monkeypatch.delenv("OFDD_BACNET_SERVER_URL", raising=False)
     set_config_overlay({})
-    with patch("openfdd_stack.platform.api.config.get_config_from_graph", return_value={}):
+    with patch(
+        "openfdd_stack.platform.api.config.get_config_from_graph", return_value={}
+    ):
         result = get_config()
     assert result == DEFAULT_PLATFORM_CONFIG
     set_config_overlay({})

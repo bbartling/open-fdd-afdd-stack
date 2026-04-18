@@ -77,7 +77,9 @@ def test_reset_graph_to_db_only_seeds_default_config_when_graph_empty():
     from openfdd_stack.platform.default_config import DEFAULT_PLATFORM_CONFIG
 
     with (
-        patch("openfdd_stack.platform.graph_model.get_config_from_graph", return_value={}),
+        patch(
+            "openfdd_stack.platform.graph_model.get_config_from_graph", return_value={}
+        ),
         patch("openfdd_stack.platform.graph_model.sync_brick_from_db"),
     ):
         reset_graph_to_db_only()
@@ -121,7 +123,9 @@ def test_purge_dangling_blank_nodes_after_removing_site_subjects():
 """
     g = Graph()
     g.parse(data=ttl, format="turtle")
-    site_subjects = {s for s in g.subjects() if isinstance(s, URIRef) and str(s).startswith(SITE_NS)}
+    site_subjects = {
+        s for s in g.subjects() if isinstance(s, URIRef) and str(s).startswith(SITE_NS)
+    }
     assert site_subjects
     for s in site_subjects:
         for t in list(g.triples((s, None, None))):

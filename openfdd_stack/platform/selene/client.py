@@ -51,12 +51,22 @@ class SeleneClient:
         secret: str | None = None,
         timeout_sec: float = 10.0,
         client: httpx.Client | None = None,
+        owns_client: bool = False,
     ) -> None:
+        """Construct a Selene HTTP client.
+
+        When ``client`` is ``None`` a fresh ``httpx.Client`` is created and
+        automatically closed on :meth:`close` / context exit. When ``client``
+        is injected the caller typically owns its lifetime, so ``close()``
+        does nothing by default. Pass ``owns_client=True`` to delegate
+        teardown of the injected client to this wrapper (useful for test
+        helpers that want a single context-manager scope).
+        """
         self.url = url.rstrip("/")
         self._identity = identity
         self._secret = secret
         self._timeout = timeout_sec
-        self._owns_client = client is None
+        self._owns_client = client is None or owns_client
         self._client = client or httpx.Client(timeout=timeout_sec)
 
     def close(self) -> None:
@@ -309,6 +319,18 @@ class SeleneClient:
         if label:
             params["label"] = label
         return self._request_json("GET", "/edges", params=params)
+
+    def get_node_edges(self, node_id: int) -> dict[str, Any]:
+        """GET /nodes/{id}/edges. Returns ``{node_id, edges: [...], total}``.
+
+        The HTTP endpoint does not filter by direction or label server-side;
+        callers filter the returned list themselves.
+        """
+        return self._request_json("GET", f"/nodes/{node_id}/edges")
+
+    def delete_edge(self, edge_id: int) -> None:
+        """DELETE /edges/{id}. 204 on success; raises :class:`SeleneNotFound` on miss."""
+        self._request("DELETE", f"/edges/{edge_id}")
 
     # ------------------------------------------------------------------
     # Time-series

@@ -24,7 +24,9 @@ def test_load_timeseries_for_equipment_uses_string_site_id():
 
         def fetchall(self):
             if self._which_cursor == 0:
-                return [{"id": "11111111-1111-1111-1111-111111111111", "external_id": "p1"}]
+                return [
+                    {"id": "11111111-1111-1111-1111-111111111111", "external_id": "p1"}
+                ]
             return [
                 {
                     "ts": datetime(2024, 1, 1, 0, 0),
@@ -59,6 +61,10 @@ def test_load_timeseries_for_equipment_uses_string_site_id():
 
     assert len(calls) >= 2, "Expected both points and timeseries query"
     first_params = calls[0][0]
-    assert all(not hasattr(p, "hex") for p in first_params), "UUID objects should not be passed to psycopg2"
+    assert all(
+        not hasattr(p, "hex") for p in first_params
+    ), "UUID objects should not be passed to psycopg2"
     second_params = calls[1][0]
-    assert all(not hasattr(p, "hex") for p in second_params), "UUID objects should not be passed to psycopg2"
+    assert all(
+        not hasattr(p, "hex") for p in second_params
+    ), "UUID objects should not be passed to psycopg2"

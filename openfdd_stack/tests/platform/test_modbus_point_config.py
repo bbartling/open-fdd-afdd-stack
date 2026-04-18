@@ -22,12 +22,20 @@ def test_normalize_rejects_bad_port():
 
 
 def test_normalize_rejects_bad_decode():
-    assert normalize_modbus_config({"host": "h", "address": 0, "decode": "nope"}) is None
+    assert (
+        normalize_modbus_config({"host": "h", "address": 0, "decode": "nope"}) is None
+    )
 
 
 def test_normalize_coerces_float32_decode():
     n = normalize_modbus_config(
-        {"host": "h", "address": 0, "count": 2, "function": "input", "decode": "float32"}
+        {
+            "host": "h",
+            "address": 0,
+            "count": 2,
+            "function": "input",
+            "decode": "float32",
+        }
     )
     assert n is not None
     assert n["decode"] == "float32"
@@ -86,7 +94,14 @@ def test_normalize_flattens_single_register_batch_shape():
             "port": 502,
             "unit_id": 2,
             "timeout": 5.0,
-            "registers": [{"address": 40001, "count": 2, "function": "holding", "decode": "float32"}],
+            "registers": [
+                {
+                    "address": 40001,
+                    "count": 2,
+                    "function": "holding",
+                    "decode": "float32",
+                }
+            ],
         }
     )
     assert n is not None

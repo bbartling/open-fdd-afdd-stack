@@ -227,7 +227,9 @@ def test_seed_default_penalty_catalog(mock_emit, mock_sync):
         "openfdd_stack.platform.api.energy_calculations.get_conn",
         side_effect=lambda: conn,
     ):
-        r = client.post(f"/energy-calculations/seed-default-penalty-catalog?site_id={site_id}")
+        r = client.post(
+            f"/energy-calculations/seed-default-penalty-catalog?site_id={site_id}"
+        )
     assert r.status_code == 200
     body = r.json()
     assert body["created"] == 18
@@ -260,7 +262,11 @@ def test_import_creates_calc(mock_emit, mock_sync):
                         "external_id": "imported_1",
                         "name": "Imported",
                         "calc_type": "runtime_electric_kw",
-                        "parameters": {"kw": 1, "hours_fault": 10, "electric_rate_per_kwh": 0.1},
+                        "parameters": {
+                            "kw": 1,
+                            "hours_fault": 10,
+                            "electric_rate_per_kwh": 0.1,
+                        },
                         "point_bindings": {},
                         "enabled": True,
                     }

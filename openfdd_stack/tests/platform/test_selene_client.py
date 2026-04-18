@@ -28,11 +28,14 @@ def _mock_client(handler) -> httpx.Client:
 
 
 def _make(handler) -> SeleneClient:
+    # owns_client=True so context-manager exit closes the MockTransport-backed
+    # httpx.Client; prevents client leakage across the test suite.
     return SeleneClient(
         "http://selene.local:8080",
         identity="admin",
         secret="dev",
         client=_mock_client(handler),
+        owns_client=True,
     )
 
 
@@ -52,8 +55,12 @@ def test_no_auth_header_when_credentials_missing():
         assert "Authorization" not in request.headers
         return httpx.Response(200, json={"status": "ok"})
 
-    client = SeleneClient("http://selene.local:8080", client=_mock_client(h))
-    client.health()
+    with SeleneClient(
+        "http://selene.local:8080",
+        client=_mock_client(h),
+        owns_client=True,
+    ) as client:
+        client.health()
 
 
 def test_gql_returns_full_payload_on_success():

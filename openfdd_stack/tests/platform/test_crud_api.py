@@ -46,7 +46,9 @@ def _patch_db(conn):
     with (
         patch("openfdd_stack.platform.api.sites.get_conn", side_effect=lambda: conn),
         patch("openfdd_stack.platform.api.points.get_conn", side_effect=lambda: conn),
-        patch("openfdd_stack.platform.api.equipment.get_conn", side_effect=lambda: conn),
+        patch(
+            "openfdd_stack.platform.api.equipment.get_conn", side_effect=lambda: conn
+        ),
     ):
         yield
 
@@ -231,7 +233,10 @@ def test_equipment_create():
     # First fetchone: duplicate check (no existing equipment); second: INSERT RETURNING
     conn = _mock_conn(fetchone=row)
     conn.cursor.return_value.__enter__.return_value.fetchone.side_effect = [None, row]
-    with _patch_db(conn), patch("openfdd_stack.platform.api.equipment.sync_ttl_to_file"):
+    with (
+        _patch_db(conn),
+        patch("openfdd_stack.platform.api.equipment.sync_ttl_to_file"),
+    ):
         r = client.post(
             "/equipment",
             json={
@@ -307,7 +312,10 @@ def test_equipment_patch_metadata_deep_merges_nested_keys():
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
     conn.commit = MagicMock()
 
-    with _patch_db(conn), patch("openfdd_stack.platform.api.equipment.sync_ttl_to_file"):
+    with (
+        _patch_db(conn),
+        patch("openfdd_stack.platform.api.equipment.sync_ttl_to_file"),
+    ):
         r = client.patch(
             f"/equipment/{eq_id}",
             json={"metadata": {"engineering": {"controls": {"panel_name": "P1"}}}},
@@ -320,7 +328,10 @@ def test_equipment_patch_metadata_deep_merges_nested_keys():
 
 def test_equipment_delete():
     conn = _mock_conn(fetchone={"id": uuid4()})
-    with _patch_db(conn), patch("openfdd_stack.platform.api.equipment.sync_ttl_to_file"):
+    with (
+        _patch_db(conn),
+        patch("openfdd_stack.platform.api.equipment.sync_ttl_to_file"),
+    ):
         r = client.delete(f"/equipment/{uuid4()}")
     assert r.status_code == 200
 

@@ -27,6 +27,7 @@ def _mock_client(handler) -> SeleneClient:
     return SeleneClient(
         "http://selene.local:8080",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
+        owns_client=True,
     )
 
 
@@ -305,8 +306,13 @@ def test_upsert_equipment_serializes_full_row():
     captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        # Node lookup by label.
         if request.method == "GET" and request.url.path == "/nodes":
-            assert request.url.params["label"] == EQUIPMENT_LABEL
+            label = request.url.params.get("label")
+            if label == EQUIPMENT_LABEL:
+                return httpx.Response(200, json={"nodes": [], "total": 0})
+            # Site/equipment lookups during edge reconciliation: target absent \u2014
+            # reconciliation skips gracefully. This test only locks property shape.
             return httpx.Response(200, json={"nodes": [], "total": 0})
         if request.method == "POST" and request.url.path == "/nodes":
             captured["body"] = json.loads(request.content)
@@ -318,6 +324,10 @@ def test_upsert_equipment_serializes_full_row():
                     "properties": captured["body"]["properties"],
                 },
             )
+        # Edge reconciliation after node upsert \u2014 no existing edges, no new
+        # edges needed because targets are absent above.
+        if request.method == "GET" and request.url.path.endswith("/edges"):
+            return httpx.Response(200, json={"node_id": 12, "edges": [], "total": 0})
         raise AssertionError(f"unexpected {request.method} {request.url.path}")
 
     with _mock_client(handler) as client:
@@ -496,18 +506,24 @@ def test_upsert_point_serializes_full_row():
     captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET":
-            assert request.url.params["label"] == POINT_LABEL
+        if request.method == "GET" and request.url.path == "/nodes":
+            # Any node label lookup during upsert or edge reconciliation \u2014
+            # return empty so edge reconciliation is a no-op. This test
+            # only locks property shape.
             return httpx.Response(200, json={"nodes": [], "total": 0})
-        captured["body"] = json.loads(request.content)
-        return httpx.Response(
-            201,
-            json={
-                "id": 22,
-                "labels": [POINT_LABEL],
-                "properties": captured["body"]["properties"],
-            },
-        )
+        if request.method == "POST" and request.url.path == "/nodes":
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(
+                201,
+                json={
+                    "id": 22,
+                    "labels": [POINT_LABEL],
+                    "properties": captured["body"]["properties"],
+                },
+            )
+        if request.method == "GET" and request.url.path.endswith("/edges"):
+            return httpx.Response(200, json={"node_id": 22, "edges": [], "total": 0})
+        raise AssertionError(f"unexpected {request.method} {request.url.path}")
 
     with _mock_client(handler) as client:
         upsert_point(

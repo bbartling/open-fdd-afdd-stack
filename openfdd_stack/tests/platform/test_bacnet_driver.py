@@ -20,7 +20,9 @@ def test_get_bacnet_points_from_data_model_empty():
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
 
-    with patch("openfdd_stack.platform.drivers.bacnet.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.drivers.bacnet.get_conn", side_effect=lambda: conn
+    ):
         out = get_bacnet_points_from_data_model()
     assert out == []
 
@@ -55,7 +57,9 @@ def test_get_bacnet_points_from_data_model_returns_normalized_rows():
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
 
-    with patch("openfdd_stack.platform.drivers.bacnet.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.drivers.bacnet.get_conn", side_effect=lambda: conn
+    ):
         out = get_bacnet_points_from_data_model(site_id=None)
     assert len(out) == 2
     assert out[0]["site_id"] == str(site_id)
@@ -79,7 +83,9 @@ def test_get_bacnet_points_from_data_model_filters_by_site_id():
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
 
-    with patch("openfdd_stack.platform.drivers.bacnet.get_conn", side_effect=lambda: conn):
+    with patch(
+        "openfdd_stack.platform.drivers.bacnet.get_conn", side_effect=lambda: conn
+    ):
         get_bacnet_points_from_data_model(site_id=site_id)
     cursor.execute.assert_called_once()
     args = cursor.execute.call_args[0]

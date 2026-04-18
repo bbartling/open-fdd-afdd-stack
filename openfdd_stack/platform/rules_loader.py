@@ -52,12 +52,16 @@ class HotReloadRules:
             self._rules = load_rules_from_dir(eff)
             try:
                 from openfdd_stack.platform.brick_ttl_resolver import (
+                    _use_selene_backend,
                     get_equipment_types_from_ttl,
                     resolve_from_ttl,
                 )
 
                 ttl = eff.parent / "data" / "data_model.ttl"
-                if ttl.exists():
+                # Selene-backed path ignores the ``ttl`` argument — the graph
+                # is the source of truth, so absent file should not zero out
+                # the maps the way the rdflib path does.
+                if _use_selene_backend() or ttl.exists():
                     self._column_map = resolve_from_ttl(str(ttl))
                     self._equipment_types = get_equipment_types_from_ttl(str(ttl))
                 else:

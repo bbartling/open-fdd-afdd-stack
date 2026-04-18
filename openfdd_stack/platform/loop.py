@@ -276,6 +276,7 @@ def run_fdd_loop(
     from open_fdd.engine.runner import RuleRunner, load_rules_from_dir
     from openfdd_stack.platform.brick_ttl_resolver import (
         BrickTtlColumnMapResolver,
+        _use_selene_backend,
         get_equipment_types_from_ttl,
     )
 
@@ -312,9 +313,11 @@ def run_fdd_loop(
         else BrickTtlColumnMapResolver()
     )
     column_map = resolver.build_column_map(ttl_path=ttl_path)
-    equipment_types = (
-        get_equipment_types_from_ttl(str(ttl_path)) if ttl_path.exists() else []
-    )
+    # Selene path ignores the TTL file; don't gate on file existence then.
+    if _use_selene_backend() or ttl_path.exists():
+        equipment_types = get_equipment_types_from_ttl(str(ttl_path))
+    else:
+        equipment_types = []
 
     # Load rules every run (hot reload for rule tuning)
     all_rules = load_rules_from_dir(rules_path)

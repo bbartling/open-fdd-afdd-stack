@@ -282,10 +282,38 @@ def test_export_rdf_honours_format_and_graphs_params():
     def h(request: httpx.Request) -> httpx.Response:
         assert request.url.params["format"] == "ntriples"
         assert request.url.params["graphs"] == "brick-only"
+        # Accept header should track the requested format, not be pinned to turtle.
+        assert request.headers["Accept"] == "application/n-triples"
         return httpx.Response(200, content=b"<s> <p> <o> .\n")
 
     with _make(h) as client:
         client.export_rdf(rdf_format="ntriples", graphs="brick-only")
+
+
+def test_export_rdf_does_not_override_accept_for_unknown_format():
+    """Unknown rdf_format → fall through to the client default Accept header.
+
+    The server still honors the ``?format=`` query param, so the request is
+    semantically correct; this just confirms we don't pin a wrong RDF media
+    type that would force a 406 from Selene.
+    """
+
+    def h(request: httpx.Request) -> httpx.Response:
+        # Must NOT be pinned to any of the RDF-specific types.
+        assert request.headers["Accept"] not in {
+            "text/turtle",
+            "application/n-triples",
+            "application/n-quads",
+        }
+        assert request.url.params["format"] == "jsonld"
+        return httpx.Response(
+            200,
+            content=b'{"@context":{}}',
+            headers={"content-type": "application/ld+json"},
+        )
+
+    with _make(h) as client:
+        client.export_rdf(rdf_format="jsonld")
 
 
 def test_export_rdf_maps_server_errors_to_typed_exception():

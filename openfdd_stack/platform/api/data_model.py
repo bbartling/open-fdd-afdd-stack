@@ -1303,14 +1303,27 @@ def _resolve_site_filter(site_filter: str | None) -> UUID | None:
 def get_ttl(
     site_id: str | None = Query(
         None,
-        description="Filter by site: UUID, site name (e.g. BensOffice), or description. Omit for all sites.",
+        description=(
+            "Filter by site: UUID, site name (e.g. BensOffice), or description. "
+            "Omit for all sites. **Ignored when OFDD_STORAGE_BACKEND=selene** — "
+            "Selene always returns the full graph export."
+        ),
     ),
     save: bool = Query(
         True,
-        description="Write TTL to config/data_model.ttl (default: true). Also auto-synced on every CRUD/import.",
+        description=(
+            "Write TTL to config/data_model.ttl (default: true). Also auto-synced "
+            "on every CRUD/import. **Ignored when OFDD_STORAGE_BACKEND=selene** — "
+            "the graph is the source of truth, no file sync needed."
+        ),
     ),
 ):
-    """Return full data model TTL (Brick from DB + BACnet from in-memory graph). Omit for all sites."""
+    """Return full data model TTL.
+
+    - **timescale backend**: Brick from Postgres + BACnet from in-memory graph.
+    - **selene backend**: streamed from SeleneDB's ``/graph/rdf`` export; the
+      ``site_id`` and ``save`` parameters are no-ops.
+    """
     # Selene is the source of truth: ask it for the RDF export directly.
     # ``site_id`` / ``save`` are no-ops here — the graph is authoritative, no
     # file sync needed, and portfolio-scoping happens in GQL downstream.

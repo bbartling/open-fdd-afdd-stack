@@ -2,17 +2,18 @@
 
 Confirms the handler short-circuits the rdflib/Postgres paths and asks Selene
 for the RDF export directly. Uses httpx.MockTransport so the test never hits
-a live Selene — the Selene client factory in ``openfdd_stack.platform.api``
+a live Selene — ``openfdd_stack.platform.selene.make_selene_client_from_settings``
 is patched to hand back a MockTransport-backed client.
 """
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
+
+import httpx
 from fastapi.testclient import TestClient
 
 from openfdd_stack.platform.api import data_model as data_model_api

@@ -222,3 +222,40 @@ def test_timeout_becomes_connection_error():
     with _make(h) as client:
         with pytest.raises(SeleneConnectionError):
             client.health()
+
+
+def test_non_json_health_response_raises_selene_error():
+    """Proxy HTML or plain-text bodies must produce SeleneError, not bare ValueError."""
+
+    def h(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"<html><body>502 Bad Gateway</body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+    with _make(h) as client:
+        with pytest.raises(SeleneError):
+            client.health()
+
+
+def test_gql_non_dict_body_raises_selene_error():
+    """Selene returning a JSON array instead of the expected object must raise typed."""
+
+    def h(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["unexpected", "shape"])
+
+    with _make(h) as client:
+        with pytest.raises(SeleneError):
+            client.gql("MATCH (n) RETURN n")
+
+
+def test_ts_write_non_dict_body_raises_selene_error():
+    def h(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[1, 2, 3])
+
+    with _make(h) as client:
+        with pytest.raises(SeleneError):
+            client.ts_write(
+                [{"entity_id": 1, "property": "t", "timestamp_nanos": 1, "value": 1.0}]
+            )

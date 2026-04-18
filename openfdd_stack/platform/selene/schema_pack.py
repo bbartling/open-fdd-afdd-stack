@@ -248,7 +248,7 @@ def register_packs_from_dir(
 
     ``order`` is a list of pack filenames (without extension) controlling
     registration order for dependency resolution. Packs not listed run last
-    in filesystem order.
+    in sorted alphabetical order (``sorted(pack_dir.glob('*.json'))``).
     """
     if not pack_dir.is_dir():
         raise PackLoadError(f"schema pack dir {pack_dir} not found")

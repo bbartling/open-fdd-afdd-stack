@@ -113,6 +113,43 @@ class SeleneClient:
         return response
 
     @staticmethod
+    def _json(response: httpx.Response) -> Any:
+        """Decode ``response.json()`` or raise :class:`SeleneError`.
+
+        Keeps the typed-exception contract when a proxy or misconfigured Selene
+        returns non-JSON (HTML error pages, plaintext, truncated bodies).
+        """
+        try:
+            return response.json()
+        except ValueError as exc:
+            snippet = response.text[:200]
+            raise SeleneError(
+                f"invalid JSON from {response.request.method} "
+                f"{response.request.url.path} ({response.status_code}): {snippet!r}"
+            ) from exc
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
+        content: bytes | str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Same as ``_request`` but decodes the JSON body with typed errors."""
+        response = self._request(
+            method,
+            path,
+            json=json,
+            params=params,
+            content=content,
+            extra_headers=extra_headers,
+        )
+        return self._json(response)
+
+    @staticmethod
     def _raise_for_status(response: httpx.Response) -> None:
         if response.is_success:
             return
@@ -139,7 +176,7 @@ class SeleneClient:
 
     def health(self) -> dict[str, Any]:
         """GET /health — returns uptime and (when authenticated) graph counts."""
-        return self._request("GET", "/health").json()
+        return self._request_json("GET", "/health")
 
     # ------------------------------------------------------------------
     # GQL
@@ -162,13 +199,17 @@ class SeleneClient:
             payload["parameters"] = parameters
         if timeout_ms is not None:
             payload["timeout_ms"] = timeout_ms
-        response = self._request("POST", "/gql", json=payload).json()
-        status = response.get("status", "")
+        body = self._request_json("POST", "/gql", json=payload)
+        if not isinstance(body, dict):
+            raise SeleneError(
+                f"expected JSON object from POST /gql, got {type(body).__name__}"
+            )
+        status = body.get("status", "")
         if status not in (GQLSTATUS_OK, GQLSTATUS_NO_DATA):
             raise SeleneQueryError(
-                response.get("message", "GQL query failed"), status=status
+                body.get("message", "GQL query failed"), status=status
             )
-        return response
+        return body
 
     def gql_rows(
         self,
@@ -185,7 +226,7 @@ class SeleneClient:
     # ------------------------------------------------------------------
 
     def get_node(self, node_id: int) -> dict[str, Any]:
-        return self._request("GET", f"/nodes/{node_id}").json()
+        return self._request_json("GET", f"/nodes/{node_id}")
 
     def list_nodes(
         self,
@@ -198,7 +239,7 @@ class SeleneClient:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if label:
             params["label"] = label
-        return self._request("GET", "/nodes", params=params).json()
+        return self._request_json("GET", "/nodes", params=params)
 
     def create_node(
         self,
@@ -213,7 +254,7 @@ class SeleneClient:
         }
         if parent_id is not None:
             payload["parent_id"] = parent_id
-        return self._request("POST", "/nodes", json=payload).json()
+        return self._request_json("POST", "/nodes", json=payload)
 
     def modify_node(
         self,
@@ -233,7 +274,7 @@ class SeleneClient:
             payload["add_labels"] = add_labels
         if remove_labels is not None:
             payload["remove_labels"] = remove_labels
-        return self._request("PUT", f"/nodes/{node_id}", json=payload).json()
+        return self._request_json("PUT", f"/nodes/{node_id}", json=payload)
 
     def delete_node(self, node_id: int) -> None:
         self._request("DELETE", f"/nodes/{node_id}")
@@ -255,7 +296,7 @@ class SeleneClient:
             "label": label,
             "properties": properties or {},
         }
-        return self._request("POST", "/edges", json=payload).json()
+        return self._request_json("POST", "/edges", json=payload)
 
     def list_edges(
         self,
@@ -267,7 +308,7 @@ class SeleneClient:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if label:
             params["label"] = label
-        return self._request("GET", "/edges", params=params).json()
+        return self._request_json("GET", "/edges", params=params)
 
     # ------------------------------------------------------------------
     # Time-series
@@ -279,7 +320,11 @@ class SeleneClient:
         Returns the count the server confirmed written.
         """
         payload = {"samples": list(samples)}
-        body = self._request("POST", "/ts/write", json=payload).json()
+        body = self._request_json("POST", "/ts/write", json=payload)
+        if not isinstance(body, dict):
+            raise SeleneError(
+                f"expected JSON object from POST /ts/write, got {type(body).__name__}"
+            )
         return int(body.get("written", 0))
 
     def ts_range(
@@ -303,14 +348,14 @@ class SeleneClient:
             params["end"] = end_nanos
         if limit is not None:
             params["limit"] = limit
-        response = self._request(
+        body = self._request_json(
             "GET", f"/ts/{entity_id}/{property_name}", params=params
-        ).json()
+        )
         # Server returns an array of samples; tolerate a future wrapped shape.
-        if isinstance(response, list):
-            return response
-        if isinstance(response, dict) and "samples" in response:
-            return response["samples"]
+        if isinstance(body, list):
+            return body
+        if isinstance(body, dict) and "samples" in body:
+            return body["samples"]
         return []
 
     def ts_latest(self, entity_id: int, property_name: str) -> dict[str, Any] | None:
@@ -349,7 +394,7 @@ class SeleneClient:
     # ------------------------------------------------------------------
 
     def list_schemas(self) -> dict[str, Any]:
-        return self._request("GET", "/schemas").json()
+        return self._request_json("GET", "/schemas")
 
     def register_node_schema(
         self,
@@ -368,7 +413,7 @@ class SeleneClient:
             payload["valid_edge_labels"] = valid_edge_labels
         if annotations is not None:
             payload["annotations"] = annotations
-        return self._request("POST", "/schemas/nodes", json=payload).json()
+        return self._request_json("POST", "/schemas/nodes", json=payload)
 
     def register_edge_schema(
         self,
@@ -383,4 +428,4 @@ class SeleneClient:
             payload["description"] = description
         if annotations is not None:
             payload["annotations"] = annotations
-        return self._request("POST", "/schemas/edges", json=payload).json()
+        return self._request_json("POST", "/schemas/edges", json=payload)

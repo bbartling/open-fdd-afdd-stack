@@ -26,7 +26,7 @@ boot). See Decision D10 in the graph (node 10216).
 
 | Pack | Version | Types | Relationships |
 |---|---|---|---|
-| ``hvac-fdd.json`` | 2.0.0 | fault_rule, fault_event, energy_profile, suppression_group, site_config, fault_cluster, remediation_playbook, annotation, finding, proposal | hasFault, boundToRule, hasEnergyProfile, suppressedBy, triggeredBy, memberOf, hasPlaybook, configuredBy, hasConcept |
+| ``hvac-fdd.json`` | 2.0.0 | fault_rule, fault_event, energy_profile, suppression_group, site_config, fault_cluster, remediation_playbook, annotation, finding, proposal | hasFault, boundToRule, hasEnergyProfile, suppressedBy, triggeredBy, memberOf, hasPlaybook, configuredBy, hasAnnotation, relatedToFault, relatedToEquipment, hasConcept |
 | ``bacnet-driver.json`` | 2.0.0 | data_source, protocol_network, bacnet_network, bacnet_object, protocol_object, bacnet_device | hasNetwork, hasDevice, exposesObject, protocolBinding, acquiredBy |
 
 ## Vocabulary (separate from these packs)

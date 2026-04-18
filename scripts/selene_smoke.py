@@ -67,45 +67,55 @@ def run(
         )
         node_id = int(node["id"])
 
-        # 3. Batch ts_write — a minute of fake 1-sec readings.
-        now_ns = time.time_ns()
-        # 1_000_000_000 nanoseconds = 1 second step between samples
-        step_ns = 1_000_000_000
-        samples = [
-            {
-                "entity_id": node_id,
-                "property": "smoke_value",
-                "timestamp_nanos": now_ns - (sample_count - i) * step_ns,
-                "value": 20.0 + (i % 10) * 0.5,
-            }
-            for i in range(sample_count)
-        ]
-        t0 = time.perf_counter()
-        written = c.ts_write(samples)
-        write_ms = (time.perf_counter() - t0) * 1000
+        try:
+            # 3. Batch ts_write — a minute of fake 1-sec readings.
+            now_ns = time.time_ns()
+            # 1_000_000_000 nanoseconds = 1 second step between samples
+            step_ns = 1_000_000_000
+            samples = [
+                {
+                    "entity_id": node_id,
+                    "property": "smoke_value",
+                    "timestamp_nanos": now_ns - (sample_count - i) * step_ns,
+                    "value": 20.0 + (i % 10) * 0.5,
+                }
+                for i in range(sample_count)
+            ]
+            t0 = time.perf_counter()
+            written = c.ts_write(samples)
+            write_ms = (time.perf_counter() - t0) * 1000
 
-        # 4. Read them back via the REST range endpoint.
-        t0 = time.perf_counter()
-        rows = c.ts_range(
-            node_id,
-            "smoke_value",
-            start_nanos=now_ns - sample_count * step_ns,
-            end_nanos=now_ns + step_ns,
-            limit=sample_count * 2,
-        )
-        read_ms = (time.perf_counter() - t0) * 1000
+            # 4. Read them back via the REST range endpoint.
+            t0 = time.perf_counter()
+            rows = c.ts_range(
+                node_id,
+                "smoke_value",
+                start_nanos=now_ns - sample_count * step_ns,
+                end_nanos=now_ns + step_ns,
+                limit=sample_count * 2,
+            )
+            read_ms = (time.perf_counter() - t0) * 1000
 
-        # 5. Clean up the scratch node so repeated smoke runs don't litter.
-        c.delete_node(node_id)
-
-        return SmokeResult(
-            health=True,
-            node_id=node_id,
-            samples_written=written,
-            samples_read=len(rows),
-            write_ms=write_ms,
-            read_ms=read_ms,
-        )
+            return SmokeResult(
+                health=True,
+                node_id=node_id,
+                samples_written=written,
+                samples_read=len(rows),
+                write_ms=write_ms,
+                read_ms=read_ms,
+            )
+        finally:
+            # 5. Best-effort cleanup so repeated smoke runs don't litter the graph,
+            #    even when ts_write / ts_range raises mid-run. Swallow cleanup
+            #    errors so they don't mask the original exception.
+            try:
+                c.delete_node(node_id)
+            except Exception as cleanup_exc:  # noqa: BLE001
+                print(
+                    f"selene-smoke: WARN could not delete scratch node {node_id} "
+                    f"({type(cleanup_exc).__name__}: {cleanup_exc})",
+                    file=sys.stderr,
+                )
 
 
 def main() -> int:

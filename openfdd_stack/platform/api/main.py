@@ -99,10 +99,29 @@ async def lifespan(app: FastAPI):
     stop_sync_thread()
 
 
+def _resolve_pack_dir(raw: str) -> Path:
+    """Resolve the configured pack dir against the repo root, then cwd.
+
+    Mirrors ``api/rules.py::_rules_dir_resolved`` so pack registration works when
+    the API is started from a container or systemd unit with a non-repo cwd.
+    Returns the first candidate whose parent exists, or the repo-root candidate
+    as a stable fallback for error messages.
+    """
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    # openfdd_stack/platform/api/main.py → parent*4 = repo root
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    candidates = [(repo_root / path).resolve(), (Path.cwd() / path).resolve()]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def _register_selene_packs_on_boot() -> None:
     """Best-effort schema pack registration when backend is selene."""
     import logging
-    from pathlib import Path
 
     from openfdd_stack.platform.selene import SeleneClient, SeleneError
     from openfdd_stack.platform.selene.schema_pack import (
@@ -111,9 +130,7 @@ def _register_selene_packs_on_boot() -> None:
     )
 
     log = logging.getLogger(__name__)
-    pack_dir = Path(settings.selene_schema_pack_dir)
-    if not pack_dir.is_absolute():
-        pack_dir = Path.cwd() / pack_dir
+    pack_dir = _resolve_pack_dir(settings.selene_schema_pack_dir)
     order = [s.strip() for s in settings.selene_pack_order.split(",") if s.strip()]
 
     try:

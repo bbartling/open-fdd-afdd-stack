@@ -135,3 +135,18 @@ def get_platform_settings() -> PlatformSettings:
     if env_bacnet:
         s.bacnet_server_url = env_bacnet.rstrip("/")
     return s
+
+
+def is_selene_backend() -> bool:
+    """Shared backend-detection helper used by every strangler branch.
+
+    Returns True when ``OFDD_STORAGE_BACKEND=selene``. Settings lookup is
+    wrapped so a misconfigured environment never crashes the hot path —
+    callers treat any failure as "assume timescale (rdflib)" and keep going.
+    """
+    try:
+        return (
+            getattr(get_platform_settings(), "storage_backend", "timescale") == "selene"
+        )
+    except Exception:  # noqa: BLE001 — settings error must not break the loop
+        return False

@@ -26,12 +26,15 @@ from typing import Any
 
 from openfdd_stack.platform.selene.client import SeleneClient
 from openfdd_stack.platform.selene.exceptions import SeleneError
+from openfdd_stack.platform.selene.graph_crud import EQUIPMENT_LABEL, POINT_LABEL
 
 logger = logging.getLogger(__name__)
 
 
+# Interpolating the shared label constants here prevents query drift if the
+# canonical labels ever change — one place to update instead of two.
 _POINT_QUERY = (
-    "MATCH (p:point) "
+    f"MATCH (p:{POINT_LABEL}) "
     "RETURN p.brick_type AS brick_type, "
     "p.fdd_input AS fdd_input, "
     "p.display_name AS display_name, "
@@ -39,7 +42,7 @@ _POINT_QUERY = (
 )
 
 _EQUIPMENT_TYPES_QUERY = (
-    "MATCH (e:equipment) "
+    f"MATCH (e:{EQUIPMENT_LABEL}) "
     "WHERE e.equipment_type IS NOT NULL "
     "RETURN DISTINCT e.equipment_type AS equipment_type"
 )

@@ -18,17 +18,9 @@ import logging
 from pathlib import Path
 from typing import Dict, Union
 
+from openfdd_stack.platform.config import is_selene_backend
+
 logger = logging.getLogger(__name__)
-
-
-def _use_selene_backend() -> bool:
-    """True when the config store is Selene (no TTL file expected on disk)."""
-    try:
-        from openfdd_stack.platform.config import get_platform_settings
-
-        return get_platform_settings().storage_backend == "selene"
-    except Exception:  # noqa: BLE001 — settings error must not break the loop
-        return False
 
 
 def _selene_client():
@@ -57,7 +49,7 @@ def resolve_from_ttl(ttl_path: Union[str, Path]) -> Dict[str, str]:
     the same Brick class, identical to the TTL path's ``ofdd:mapsToRuleInput``
     semantics.
     """
-    if _use_selene_backend():
+    if is_selene_backend():
         from openfdd_stack.platform.selene.column_map import build_column_map
 
         client = _selene_client()
@@ -125,7 +117,7 @@ def get_equipment_types_from_ttl(ttl_path: Union[str, Path]) -> list:
     and the list is queried from Selene. Used to filter which rules apply
     to the equipment in the data model.
     """
-    if _use_selene_backend():
+    if is_selene_backend():
         from openfdd_stack.platform.selene.column_map import list_equipment_types
 
         client = _selene_client()
@@ -167,7 +159,7 @@ class BrickTtlColumnMapResolver:
     """
 
     def build_column_map(self, *, ttl_path: Path) -> Dict[str, str]:
-        if _use_selene_backend():
+        if is_selene_backend():
             return dict(resolve_from_ttl(ttl_path))
         if ttl_path.exists():
             return dict(resolve_from_ttl(str(ttl_path)))

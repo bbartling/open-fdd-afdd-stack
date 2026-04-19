@@ -26,7 +26,7 @@ This project is an open-source stack; a cloud or MSI vendor can develop their ow
 |---------|-------------|
 | **API** | FastAPI CRUD for sites, equipment, points. Data-model export/import, TTL generation, SPARQL validation. Swagger at `/docs`. Config UI (HA-style data model tree, BACnet test) at `/app/`. |
 | **Grafana** | Pre-provisioned TimescaleDB datasource only (uid: openfdd_timescale). No dashboards; build your own with SQL from the [Grafana SQL cookbook](howto/grafana_cookbook). Use `--reset-grafana` to re-apply datasource provisioning. |
-| **TimescaleDB** | PostgreSQL with TimescaleDB extension. Single source of truth for metadata and time-series. |
+| **TimescaleDB** | PostgreSQL with TimescaleDB extension. Holds application-layer CRUD metadata (sites, equipment, points, fault_definitions, fault_results) and the FDD loop's timeseries reads during the Phase 2/3 transition. New BACnet samples flow to SeleneDB via `ts_write`; TimescaleDB retires as a timeseries store in Phase 3. |
 | **BACnet scraper** | Embedded [rusty-bacnet](https://github.com/jscott3201/rusty-bacnet) driver; binds UDP/47808 via `network_mode: host`. Reads `:bacnet_object → :point` bindings from SeleneDB and writes samples via `ts_write`. |
 | **SeleneDB** | Graph + time-series + vector + RDF in one runtime. Holds BACnet discovery (`:bacnet_device` / `:bacnet_object`), application points, and scrape samples. |
 | **Weather scraper** | Fetches from Open-Meteo ERA5 (temp, RH, dewpoint, wind, solar/radiation, cloud cover). |

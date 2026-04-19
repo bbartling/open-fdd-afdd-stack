@@ -24,7 +24,7 @@ curl -X POST "${BASE}/bacnet/whois_range" \
   -d '{"request": {"start_instance": 1, "end_instance": 3456799}}'
 ```
 
-Use the gateway `url` in the body if needed (e.g. `"url": "http://192.168.1.50:8080"`). Omit to use the server default (e.g. `OFDD_BACNET_SERVER_URL` or `http://localhost:8080`). From the response, pick a **device_instance** (e.g. `3456789`) for the next step.
+The driver is embedded (rusty-bacnet); there is no gateway URL to set. From the response, pick a **device_instance** (e.g. `3456789`) for the next step.
 
 ---
 
@@ -39,7 +39,7 @@ curl -X POST "${BASE}/bacnet/point_discovery" \
   -d '{"instance": {"device_instance": 3456789}}'
 ```
 
-Response shape (from diy-bacnet-server): `result.data.objects` is a list of objects. Each has at least:
+Response shape: `objects` is a list of objects. Each entry has at least:
 
 - **object_identifier** — e.g. `"analog-input,1"`, `"device,3456789"`
 - **object_name** or **name** — human-readable name

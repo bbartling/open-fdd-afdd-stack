@@ -11,7 +11,7 @@ Open-FDD supports incremental modular operation while keeping one-command orches
 
 | Module | Concern | Current services |
 |--------|---------|------------------|
-| Collector | BACnet collection and ingestion | `db`, `bacnet-server`, `bacnet-scraper` |
+| Collector | BACnet collection and ingestion | `db`, `selene`, `bacnet-scraper` |
 | Model | Brick/data-model CRUD and SPARQL | `db`, `api`, `frontend`, `caddy` |
 | Engine | Pandas/YAML FDD execution | `db`, `fdd-loop`, `weather-scraper` |
 | Interface | API, websocket, MCP/OpenClaw orchestration | `api`, `frontend`, `caddy`, `mcp-rag` |

@@ -32,7 +32,7 @@ This workflow is intended for **mechanical engineers and building operators** wh
 
 5. **Import** — **PUT /data-model/import** with body: **points** (array) and optional **equipment** (array for feeds/fed_by, **equipment_type**, **engineering**, etc.). The API accepts **only** these two keys — no `sites`, `equipments`, or `relationships`. The backend creates/updates points and equipment relationships, then rebuilds the RDF and TTL.
 
-6. **Scraping** — The BACnet scraper (data-model path) loads points where `bacnet_device_id`, `object_identifier`, and **polling = true**; it calls diy-bacnet-server **client_read_multiple** per device and writes to `timeseries_readings`. Grafana and FDD use the same data model.
+6. **Scraping** — The BACnet scraper walks `:bacnet_object -[:protocolBinding]-> :point` in SeleneDB. For each device, it issues a single **ReadPropertyMultiple** via the embedded rusty-bacnet driver and writes samples with `entity_id = point.id` via SeleneDB `ts_write`. Grafana and FDD use the same data model.
 
 ---
 

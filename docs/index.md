@@ -21,7 +21,7 @@ The building is modeled in a **unified graph**: Brick (sites, equipment, points)
 
 Open-FDD is an **edge analytics and rules engine** for building automation. It:
 
-- **Ingests** BACnet points via diy-bacnet-server (JSON-RPC) and weather via Open-Meteo
+- **Ingests** BACnet points via an embedded [rusty-bacnet](https://github.com/jscott3201/rusty-bacnet) driver (ASHRAE 135-2020, BACnet/IP today, BACnet/SC planned) and weather via Open-Meteo
 - **Stores** telemetry in TimescaleDB and models the building in a **unified RDF graph** (Brick + BACnet + config)
 - **Runs** YAML-defined FDD rules (bounds, flatline, hunting, expression) on a configurable schedule
 - **Exposes** REST APIs for sites, points, equipment, data-model export/import, bulk timeseries and fault download (Excel-friendly CSV, JSON for cloud), TTL generation, SPARQL validation
@@ -47,7 +47,7 @@ cd open-fdd-afdd-stack
 | **API (REST)** | http://localhost:8000/docs | Swagger UI for integration and scripts. High-level reference: [Appendix: API Reference](appendix/api_reference). |
 | **Caddy (reverse proxy)** | http://localhost:80 | Default `stack/caddy/Caddyfile` proxies **`/api*`**, **`/auth*`**, **`/ws*`**, **`/ai*`** to the API (with `/api` prefix stripped) and **`/*`** to the frontend. See [Security and Caddy](security). Optional hardening (basic auth, TLS) is covered below. |
 | **TimescaleDB** | 127.0.0.1:5432 | Database `openfdd` (user `postgres`); host port is loopback-only in compose ([Security — stack hardening](security#stack-hardening-db-caddy-secrets)). |
-| **BACnet (diy-bacnet-server)** | http://localhost:8080/docs | JSON-RPC API; UDP 47808 for BACnet/IP. |
+| **BACnet driver** | (in-process) | Rusty-bacnet binds UDP 47808 inside the `bacnet-scraper` / `api` containers via `network_mode: host`. Reach it through the REST API under `/bacnet/*`. |
 | **Grafana** | http://localhost:3000 | **Optional:** `./scripts/bootstrap.sh --with-grafana` (admin/admin). React frontend provides equivalent views. |
 
 **WebSockets:** The API exposes **`/ws/events`** for live updates (faults, CRUD, FDD run). The React app sends the current **access JWT** or **`OFDD_API_KEY`** as **`?token=`** when connecting; REST uses **`Authorization: Bearer`**. See [Security & Caddy](security).
@@ -105,8 +105,8 @@ The **committed** **`stack/caddy/Caddyfile`** already puts the **API and WebSock
 | **Frontend** | 5173 | React dashboard (sites, points, faults, plots) |
 | **TimescaleDB** | 5432 | PostgreSQL + TimescaleDB |
 | **Grafana** | 3000 | **Optional** dashboards (`--with-grafana`); React frontend has equivalent views |
-| **diy-bacnet-server** | 8080 | JSON-RPC API (HTTP); optional BACnet2MQTT + experimental MQTT RPC gateway when env vars set ([MQTT how-to](howto/mqtt_integration)) |
-| **diy-bacnet-server** | 47808 | BACnet/IP (UDP) |
+| **SeleneDB** | 8080 (internal) | Graph + time-series + vector + RDF backend for BACnet discovery and scrape samples. |
+| **BACnet driver** | 47808 (UDP, host mode) | Embedded rusty-bacnet in `bacnet-scraper` + `api`. No separate gateway container. |
 | **Mosquitto (MQTT)** | 1883 | **Optional / experimental:** `./scripts/bootstrap.sh --with-mqtt-bridge` — generic broker for BACnet2MQTT and/or MQTT RPC cmd/ack ([MQTT how-to](howto/mqtt_integration)) |
 
 ---

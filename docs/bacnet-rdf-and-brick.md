@@ -14,7 +14,7 @@ Open-FDD treats the **building as a knowledge graph**: sites, equipment, and poi
 
 | Layer | Responsibility |
 |-------|----------------|
-| **diy-bacnet-server** | BACnet RPCs: Who-Is, point discovery (returns JSON objects per device). Open-FDD calls these. |
+| **rusty-bacnet** (embedded) | BACnet protocol stack: Who-Is, object-list read, ReadPropertyMultiple. Open-FDD's `BipTransport` wraps it. |
 | **Open-FDD** | Calls point discovery, builds clean BACnet TTL from the JSON, merges into the in-memory graph (Brick from DB + BACnet). CRUD owns sites, equipment, points. SPARQL runs over the combined model; sync writes `config/data_model.ttl`. |
 
 ---

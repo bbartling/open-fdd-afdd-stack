@@ -35,13 +35,13 @@ See also: [Security and Caddy](../security) and [Operations testing plan](../ope
 
 ## Scan container images
 
-Open-FDD builds several images (API, BACnet scraper, weather scraper, FDD loop, hoststats, and optionally diy-bacnet-server). Image names depend on your Compose project (often `stack` if you run from `stack/` or with `-f stack/docker-compose.yml`).
+Open-FDD builds several images (API, BACnet scraper, weather scraper, FDD loop, hoststats). Image names depend on your Compose project (often `stack` if you run from `stack/` or with `-f stack/docker-compose.yml`).
 
 1. **List built images:**
    ```bash
    cd stack && docker compose images
    ```
-   Or after a full build: `docker images` and look for images built from the open-fdd stack (e.g. `stack-api`, `stack-bacnet-scraper`, `diy-bacnet-server:latest`).
+   Or after a full build: `docker images` and look for images built from the open-fdd stack (e.g. `stack-api`, `stack-bacnet-scraper`).
 
 2. **Scan each built image:**
    ```bash
@@ -50,7 +50,6 @@ Open-FDD builds several images (API, BACnet scraper, weather scraper, FDD loop, 
    trivy image stack-weather-scraper
    trivy image stack-fdd-loop
    trivy image stack-hoststats
-   trivy image diy-bacnet-server:latest
    ```
    Replace with your actual image names if different (e.g. `openfdd-api` if your project name is `openfdd`).
 

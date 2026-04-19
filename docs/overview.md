@@ -27,10 +27,10 @@ This project is an open-source stack; a cloud or MSI vendor can develop their ow
 | **API** | FastAPI CRUD for sites, equipment, points. Data-model export/import, TTL generation, SPARQL validation. Swagger at `/docs`. Config UI (HA-style data model tree, BACnet test) at `/app/`. |
 | **Grafana** | Pre-provisioned TimescaleDB datasource only (uid: openfdd_timescale). No dashboards; build your own with SQL from the [Grafana SQL cookbook](howto/grafana_cookbook). Use `--reset-grafana` to re-apply datasource provisioning. |
 | **TimescaleDB** | PostgreSQL with TimescaleDB extension. Single source of truth for metadata and time-series. |
-| **BACnet scraper** | Polls diy-bacnet-server via JSON-RPC. Writes readings to `timeseries_readings`. |
+| **BACnet scraper** | Embedded [rusty-bacnet](https://github.com/jscott3201/rusty-bacnet) driver; binds UDP/47808 via `network_mode: host`. Reads `:bacnet_object → :point` bindings from SeleneDB and writes samples via `ts_write`. |
+| **SeleneDB** | Graph + time-series + vector + RDF in one runtime. Holds BACnet discovery (`:bacnet_device` / `:bacnet_object`), application points, and scrape samples. |
 | **Weather scraper** | Fetches from Open-Meteo ERA5 (temp, RH, dewpoint, wind, solar/radiation, cloud cover). |
 | **FDD loop** | Runs every N hours (see `rule_interval_hours`, `lookback_days` in platform config). Pulls last N days from DB into pandas, **reloads all rules from YAML on every run** (hot reload), runs rules, writes `fault_results` back to DB. No restart needed when tuning rule params. |
-| **[diy-bacnet-server](https://github.com/bbartling/diy-bacnet-server)** | BACnet/IP JSON-RPC bridge. Discovery and present-value reads via JSON-RPC; Open-FDD merges discovery into the **data model** (RDF/TTL), not a required CSV. |
 
 ---
 
@@ -38,16 +38,16 @@ This project is an open-source stack; a cloud or MSI vendor can develop their ow
 
 ![Open-FDD Edge Platform Architecture Campus](https://raw.githubusercontent.com/bbartling/open-fdd/master/open-fdd-schematic-bacnet-gateway.png)
 
-Remote Open-FDD BACnet gateways (e.g. diy-bacnet-server plus scraper) can be deployed **across each subnet** on the internal campus IT network. Typically each building has its own BACnet network on a unique subnet; a gateway per building or per subnet keeps BACnet traffic local while forwarding data to a **centralized** Open-FDD instance (API, Grafana, FDD loop, database). That gives the campus a single integration point for the cloud-based vendor of choice—one API and one data model for the whole portfolio, without the vendor touching each building’s BACnet network directly.
+Remote Open-FDD BACnet edges can be deployed **across each subnet** on the internal campus IT network. Typically each building has its own BACnet network on a unique subnet; one edge per building or per subnet keeps BACnet traffic local while forwarding data to a **centralized** Open-FDD instance (API, Grafana, FDD loop, database). That gives the campus a single integration point for the cloud-based vendor of choice — one API and one data model for the whole portfolio, without the vendor touching each building's BACnet network directly.
 
-**How to set it up:** (1) **Remote gateway per building (recommended pattern):** On each subnet run diy-bacnet-server + scraper pointed at the **central Open-FDD API**—create each building’s **site** on the central API first and set **`OFDD_BACNET_SITE_ID`** (and related env) so readings and metadata align with the central data model. Prefer **API-mediated** configuration and ingestion over giving every gateway direct **database** credentials. (2) **Central aggregator:** On the central host run DB, API, Grafana, FDD loop (no local BACnet); set **`OFDD_BACNET_GATEWAYS`** to a JSON array of `{url, site_id}` so one scraper polls remote gateways (see [Configuration — BACnet](configuration#bacnet-single-gateway-remote-gateways-central-aggregator)). (3) **Advanced / internal-network only:** Pointing **`OFDD_DB_DSN`** at the central Postgres from remote scrapers avoids the API path but **widens exposure** of the database—use only on a trusted LAN with locked-down firewall and ops approval; not the default recommendation. **`run_bacnet_scrape.py`** and per-gateway CSV/env options remain available for special deployments; they are **not** the default product path.
+**How to set it up:** Each edge runs the stack in **collector mode** (`--mode collector`): `db`, `selene`, `bacnet-scraper`. The scraper binds UDP/47808 on the OT NIC via `network_mode: host` and writes discovery + samples to the local SeleneDB. Point the edge's Selene at the central Selene (federation arrives in a later slice; for now each edge is a self-contained sample store). Run the full API / FDD loop / Grafana on the central host, reading from the federated or replicated Selene dataset. Multi-site topologies that used to span `OFDD_BACNET_GATEWAYS` now return as `:bacnet_network` nodes in the graph — one node per edge — with `hasDevice` edges linking each site's devices.
 
 ---
 
 ## Data flow
 
 1. **Ingestion:** BACnet scraper and weather scraper write to `timeseries_readings` (point_id, ts, value).
-2. **Data model (unified graph):** The building is represented as a **unified graph**—one semantic model combining Brick (sites, equipment, points from the DB), BACnet RDF (from point discovery via diy-bacnet-server), platform config, and room for future ontologies (e.g. ASHRAE 223P). CRUD and **POST /bacnet/point_discovery_to_graph** update this model; SPARQL queries it. One TTL file `config/data_model.ttl` holds the graph; a background thread serializes it to disk every 5 minutes (configurable via `OFDD_GRAPH_SYNC_INTERVAL_MIN`); **POST /data-model/serialize** runs the same write on demand.
+2. **Data model (unified graph):** The building is represented as a **unified graph**—one semantic model combining Brick (sites, equipment, points), BACnet discovery (`:bacnet_device` / `:bacnet_object` nodes from the embedded rusty-bacnet driver), platform config, and room for future ontologies (e.g. ASHRAE 223P). CRUD and **POST /bacnet/point_discovery_to_graph** update this model; SPARQL queries it. The TTL file `config/data_model.ttl` remains as a legacy export format; SeleneDB is the source of truth.
 3. **FDD (Python/pandas):** The FDD loop pulls data into a pandas DataFrame, runs YAML rules, writes `fault_results` to the database. Fault logic lives in the rule runner; the database is read/write storage.
 4. **Visualization:** Grafana queries TimescaleDB for timeseries and fault results.
 
@@ -56,7 +56,7 @@ Remote Open-FDD BACnet gateways (e.g. diy-bacnet-server plus scraper) can be dep
 ## Ways to deploy
 
 - **Docker Compose (AFDD stack):** In **[open-fdd-afdd-stack](https://github.com/bbartling/open-fdd-afdd-stack)**, run `./scripts/bootstrap.sh` (see **[stack docs](https://bbartling.github.io/open-fdd-afdd-stack/)**).
-- **Minimal stack (BACnet-focused):** `./scripts/bootstrap.sh --minimal` in that repo — DB + BACnet server + scraper; no full API/FDD/weather unless you add services.
+- **Minimal stack (BACnet-focused):** `./scripts/bootstrap.sh --minimal` in that repo — DB + SeleneDB + BACnet scraper; no full API/FDD/weather unless you add services.
 - **Engine only:** `pip install open-fdd` and run `RuleRunner` on pandas DataFrames (no Compose); see **[Engine-only / IoT](howto/engine_only_iot)**.
 - **Manual / custom:** Start your own processes; reuse the same rule YAML and `open_fdd.engine` APIs.
 

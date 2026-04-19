@@ -4,29 +4,31 @@ parent: How-to Guides
 nav_order: 3
 ---
 
-# MQTT integration (optional) — Open-FDD + diy-bacnet-server
+# MQTT integration (optional)
 
-Open-FDD does **not** require MQTT for core FDD, BACnet scraping, or the web UI. MQTT is **optional** and aimed at **future** edge/automation patterns and **generic** brokers (typically **Mosquitto**), not a specific cloud vendor.
+Open-FDD does **not** require MQTT for core FDD, BACnet scraping, or the web UI. MQTT is **optional** scaffolding for future edge/automation integrations. The legacy BACnet2MQTT and MQTT RPC gateway features rode on `diy-bacnet-server`; both were retired in Phase 2.5d along with the gateway itself.
 
 ## What the stack can do today
 
-1. **Mosquitto (compose profile)**  
-   Run `./scripts/bootstrap.sh --with-mqtt-bridge` to start a broker on **`localhost:1883`** (see [Getting started](../getting_started) and [Quick reference](quick_reference)).
+**Mosquitto (optional broker)**
 
-2. **BACnet2MQTT (diy-bacnet-server)**  
-   When **`BACNET2MQTT_ENABLED=true`** and **`MQTT_BROKER_URL`** point at that broker, **diy-bacnet-server** publishes per-point state under **`MQTT_BASE_TOPIC`** (default `bacnet2mqtt`) and can publish Home Assistant discovery under **`HA_DISCOVERY_TOPIC`**. This is documented in the **[diy-bacnet-server repo](https://github.com/bbartling/diy-bacnet-server)** (README and `HOME_ASSISTANT_MQTT_CHEATSHEET.md`).
+Run `./scripts/bootstrap.sh --with-mqtt-bridge` to start a broker on **`localhost:1883`** (see [Getting started](../getting_started) and [Quick reference](quick_reference)). The broker is a standalone component today — nothing in the current BACnet driver publishes to it. Use it when you build a future integration (e.g. a publish-to-MQTT webhook on scrape writes, a Home Assistant discovery feed) or to prototype.
 
-3. **MQTT RPC gateway (experimental, diy-bacnet-server)**  
-   When **`MQTT_RPC_GATEWAY_ENABLED=true`**, the same gateway process can subscribe to **`{MQTT_RPC_TOPIC_PREFIX}/cmd`** and publish structured acks on **`.../ack`**, using the **same method names** as HTTP JSON-RPC (`server_hello`, `client_whois_range`, `client_read_property`, etc.). Optional **telemetry** topics advertise supported methods and periodic metadata.  
-   Configure via **`stack/.env`** (variables are passed through **`stack/docker-compose.yml`** to the **bacnet-server** service). See the upstream **[MQTT RPC gateway](https://github.com/bbartling/diy-bacnet-server/blob/master/README.md#mqtt-rpc-gateway-optional-experimental)** section for topic layout and security notes (TLS, ACLs).
+## Planned / future integrations
+
+None of these are wired yet, but the broker is ready when a slice lands:
+
+- **BACnet → MQTT publisher.** A thin service that tails `ts_write` events from SeleneDB (or piggybacks on the scraper's `ScrapeResult`) and publishes per-point state on configurable topics.
+- **Home Assistant discovery feed.** Same publisher, with HA discovery payloads under `homeassistant/sensor/<point>/config`.
+- **MQTT RPC gateway.** Optional alternative to the HTTP API for low-bandwidth / edge setups. Would accept command topics (`read_property`, `write_property`) and emit acks.
 
 ## Open-FDD product scope
 
-- Core data path remains **HTTP JSON-RPC** from the **BACnet scraper** and API to **diy-bacnet-server**.
-- MQTT features are **additive**: monitoring via BACnet2MQTT, command/ack experimentation via the RPC gateway, without replacing the database-backed scraper or auth model (**`OFDD_BACNET_SERVER_API_KEY`** → **`BACNET_RPC_API_KEY`** on the gateway).
+- The data path is **embedded rusty-bacnet → SeleneDB `ts_write`**. No RPC middle layer.
+- MQTT stays strictly additive. Nothing in the core read/write/scrape flow depends on a broker.
 
 ## Related docs
 
 - [Getting started](../getting_started) — `--with-mqtt-bridge`
 - [Quick reference](quick_reference) — broker port and status checks
-- [BACnet overview](../bacnet/overview) — gateway and scraper roles
+- [BACnet overview](../bacnet/overview) — driver and scraper architecture

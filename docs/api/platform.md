@@ -109,19 +109,22 @@ CRUD for points (sensors, setpoints, commands) that reference timeseries. Deleti
 
 ---
 
-## BACnet proxy and import
+## BACnet API
 
-The API proxies to diy-bacnet-server for discovery and can import results into the data model.
+The API embeds the rusty-bacnet driver and exposes these routes directly — there is no separate gateway to proxy.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET    | /bacnet/gateways      | List configured gateways (default from OFDD_BACNET_SERVER_URL plus OFDD_BACNET_GATEWAYS). Use the returned `id` in `?gateway=` on BACnet POST endpoints. |
-| POST   | /bacnet/server_hello   | Test connection to diy-bacnet-server |
-| POST   | /bacnet/whois_range   | Who-Is over an instance range (body: optional `url`, `request`: `{start_instance, end_instance}`) |
-| POST   | /bacnet/point_discovery | Point discovery for a device (body: optional `url`, `instance`: `{device_instance}`) |
-| POST   | /bacnet/point_discovery_to_graph | **Point discovery → in-memory graph**. Calls the gateway for point discovery (device instance), builds BACnet TTL from JSON, updates the graph and optionally writes `config/data_model.ttl`. Body: `instance` (device_instance), optional `update_graph`, `write_file`, `url`. |
+| GET    | /bacnet/gateways      | Returns one entry describing the embedded driver (bind interface, port, transport). |
+| POST   | /bacnet/server_hello   | Config echo — returns `{ok, driver, transport, interface, port}` without sending BACnet traffic. |
+| POST   | /bacnet/whois_range   | Who-Is over an instance range (body: `request: {start_instance, end_instance}`, optional `timeout_ms`). Persists responders as `:bacnet_device` nodes in SeleneDB. |
+| POST   | /bacnet/point_discovery | Enumerate one device's object-list; optional `enrich` controls per-object name/description/units. Does not persist. |
+| POST   | /bacnet/point_discovery_to_graph | Same as above but persists each object as a `:bacnet_object` node linked to the device via `exposesObject`. |
+| POST   | /bacnet/read_property | Single property read (body: `device_instance`, `object_identifier`, `property_identifier`). |
+| POST   | /bacnet/read_multiple | Batch ReadPropertyMultiple (body: `device_instance`, `requests: [{object_identifier, property_identifier}]`). |
+| POST   | /bacnet/write_property | Single property write (body: `device_instance`, `object_identifier`, `property_identifier`, `value`, `priority` 1-16). |
 
-Config UI at `/app/` provides a BACnet panel. Use **POST /bacnet/point_discovery_to_graph** to put BACnet devices/points into the graph; create points in the DB via CRUD or [data-model export/import](../modeling/ai_assisted_tagging).
+Legacy JSON-RPC shapes (`{"request": {...}}` wrapper, hyphenated `present-value`, short-form `ai,1` object identifiers) are still accepted for backward compatibility.
 
 ---
 

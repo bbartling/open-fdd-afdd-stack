@@ -25,18 +25,18 @@ Open-FDD is an open-source **edge analytics platform for smart buildings** that 
 | **Grafana** | http://localhost:3000 | Optional (`--with-grafana`); admin / admin |
 | **Frontend (React)** | http://localhost:5173 | Dashboard, Config, Points, Data model, Faults, Plots. Via Caddy: http://localhost:80. |
 | **API (Swagger)** | http://localhost:8000/docs | REST API; Bearer auth when `OFDD_API_KEY` set. |
-| **BACnet Swagger** | http://localhost:8080/docs | diy-bacnet-server JSON-RPC. |
-| **MQTT broker** | localhost:1883 | Optional: `./scripts/bootstrap.sh --with-mqtt-bridge` (Mosquitto). Use with **diy-bacnet-server** BACnet2MQTT and/or **MQTT RPC gateway** env vars; see [MQTT integration](mqtt_integration). |
+| **BACnet driver** | in-process (rusty-bacnet) | Reach it via the REST API at `/bacnet/*`; container binds UDP/47808 on the host NIC. |
+| **MQTT broker** | localhost:1883 | Optional: `./scripts/bootstrap.sh --with-mqtt-bridge` (Mosquitto). Scaffolding for future BACnet↔MQTT integrations; see [MQTT integration](mqtt_integration). |
 
 On another host, replace `localhost` with the server IP (e.g. `http://192.168.204.16:8000`). For bootstrap options run `./scripts/bootstrap.sh --help`.
 
-**Check BACnet and MQTT bridge status** (when bridge enabled, `result.mqtt_bridge` is present). The API proxy expects JSON-RPC shape; add **`-H "Authorization: Bearer $OFDD_API_KEY"`** when `OFDD_API_KEY` is set.
+**Check BACnet driver health.** The API's `/bacnet/server_hello` is a config echo — a 200 with `{"ok": true, "driver": "rusty-bacnet", ...}` confirms the driver loaded.
 
 ```bash
-curl -sS -X POST http://localhost:8000/bacnet/server_hello -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"0","method":"server_hello","params":{}}'
-# Direct to gateway on the host (not from inside arbitrary containers): same JSON body to http://localhost:8080/server_hello
-# Same hop verify uses: ./scripts/smoke_bacnet_api_to_gateway.sh
+curl -sS -X POST http://localhost:8000/bacnet/server_hello -H "Content-Type: application/json" -d '{}'
+# Prove BAS reachability end-to-end with a narrow Who-Is:
+curl -sS -X POST http://localhost:8000/bacnet/whois_range -H "Content-Type: application/json" \
+  -d '{"request": {"start_instance": 1, "end_instance": 9999}, "timeout_ms": 3000}'
 ```
 
 ---
@@ -48,7 +48,7 @@ DB:       127.0.0.1:5432/openfdd  (postgres/postgres; loopback bind)
 Frontend: http://localhost:5173   (or :80 via Caddy)
 API:      http://localhost:8000   (docs: /docs)
 Grafana:  http://localhost:3000   (optional; --with-grafana; admin/admin)
-BACnet:   http://localhost:8080   (diy-bacnet-server Swagger)
+BACnet:   in-process (rusty-bacnet via http://localhost:8000/bacnet/*)
 MQTT:     localhost:1883          (optional / experimental; --with-mqtt-bridge)
 ```
 
@@ -128,7 +128,7 @@ docker logs openfdd_api --tail 30
 docker logs openfdd_bacnet_scraper --tail 30
 docker logs openfdd_weather_scraper --tail 30
 docker logs openfdd_fdd_loop --tail 30
-docker logs openfdd_bacnet_server --tail 30
+docker logs openfdd_selene --tail 30
 docker logs openfdd_grafana --tail 30
 docker logs openfdd_timescale --tail 30
 ```

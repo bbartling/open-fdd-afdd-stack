@@ -6,7 +6,7 @@ nav_order: 1
 
 # Data model flow
 
-Open-FDD uses a **unified graph**: one semantic model that combines Brick (sites, equipment, points), BACnet discovery RDF (from bacpypes3 in diy-bacnet-server), platform config, and **engineering / 223-style topology** (`ofdd:*` schedule fields and `s223:*` connection patterns from **Data Model Engineering**). CRUD, discovery, and engineering import all feed this graph; **all backend queries are SPARQL-driven** (rdflib Graph parse + SPARQL; no grep or text search on the TTL). Rules resolve inputs via `ofdd:mapsToRuleInput` in the TTL. See [Data model engineering (Brick + 223P MVP)](../howto/data_model_engineering) for how that layer ties to FDD, PostgreSQL, and optional **energy-penalty-style** analytics.
+Open-FDD uses a **unified graph**: one semantic model that combines Brick (sites, equipment, points), BACnet discovery (`:bacnet_device` / `:bacnet_object` nodes written by the embedded rusty-bacnet driver), platform config, and **engineering / 223-style topology** (`ofdd:*` schedule fields and `s223:*` connection patterns from **Data Model Engineering**). CRUD, discovery, and engineering import all feed this graph; **all backend queries are SPARQL-driven** (rdflib Graph parse + SPARQL; no grep or text search on the TTL). Rules resolve inputs via `ofdd:mapsToRuleInput` in the TTL. See [Data model engineering (Brick + 223P MVP)](../howto/data_model_engineering) for how that layer ties to FDD, PostgreSQL, and optional **energy-penalty-style** analytics.
 
 ---
 

@@ -80,7 +80,7 @@ You can confirm that the BACnet scraper, weather scraper, and FDD loop are runni
 
 **BACnet scraper:**
 
-**API → DIY gateway (prerequisite):** If **`POST /bacnet/server_hello`** via the API times out or discovery never returns devices, confirm the **same hop the API uses** from the repo root on the Docker host: **`./scripts/smoke_bacnet_api_to_gateway.sh`**. If that fails while **`curl -X POST http://127.0.0.1:8080/server_hello`** with a JSON-RPC body works on the host, the break is **bridge → host :8080** (hairpin / `OFDD_BACNET_SERVER_URL`), not the React app — see [OpenClaw, Docker BACnet, and human data modeling](openclaw_bacnet_docker_and_human_modeling).
+**API driver health (prerequisite):** `POST /bacnet/server_hello` is a config echo — a 200 with `{"ok": true, "driver": "rusty-bacnet", ...}` means the embedded driver loaded. If it fails, `docker logs openfdd_api` will show the import/bind error. A green driver health doesn't prove the BAS is reachable; use `/bacnet/whois_range` with a narrow range to test end-to-end. See [OpenClaw, Docker BACnet, and human data modeling](openclaw_bacnet_docker_and_human_modeling) for firewall / routing notes.
 
 **Quick verification (is BACnet scraping?):**
 

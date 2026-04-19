@@ -85,12 +85,13 @@ Used to build the PUT /config body at bootstrap; thereafter config is in the gra
 | `OFDD_LOOKBACK_DAYS` | 3 | Lookback window for timeseries. |
 | `OFDD_RULES_DIR` | stack/rules | YAML rules directory (hot reload). |
 | `OFDD_BRICK_TTL_DIR` | config | Brick TTL directory. |
-| `OFDD_BACNET_ADDRESS` | — | BACnet/IP **UDP** bind for bacpypes3 / diy-bacnet-server (e.g. `192.168.1.10/24:47808`). Distinct from HTTP below. |
-| `OFDD_BACNET_SERVER_URL` | — | diy-bacnet-server **HTTP** URL for JSON-RPC (API/scraper: usually `http://host.docker.internal:8080`; host scripts: `http://127.0.0.1:8080`). |
-| `OFDD_BACNET_SITE_ID` | default | Site to tag when scraping. |
-| `OFDD_BACNET_GATEWAYS` | — | JSON array for central aggregator. |
+| `OFDD_BACNET_INTERFACE` | 0.0.0.0 | BACnet/IP bind IP for the embedded rusty-bacnet driver. |
+| `OFDD_BACNET_PORT` | 47808 | BACnet/IP UDP port. |
+| `OFDD_BACNET_BROADCAST_ADDRESS` | 255.255.255.255 | Who-Is broadcast target. |
+| `OFDD_BACNET_APDU_TIMEOUT_MS` | 6000 | APDU timeout. |
+| `OFDD_BACNET_DEVICE_INSTANCE` | — | Optional local Device object instance; required for COV subscriptions. |
 | `OFDD_BACNET_SCRAPE_ENABLED` | true | Enable BACnet scraper. |
-| `OFDD_BACNET_SCRAPE_INTERVAL_MIN` | 5 | Scrape interval (minutes). |
+| `OFDD_BACNET_SCRAPE_INTERVAL_MIN` | 1 | Scrape interval (minutes). |
 | `OFDD_OPEN_METEO_*` | (see Configuration) | enabled, interval_hours, latitude, longitude, timezone, days_back, site_id. |
 | `OFDD_GRAPH_SYNC_INTERVAL_MIN` | 5 | Graph sync interval (also in graph). |
 
@@ -110,12 +111,12 @@ Tests live under `open_fdd/tests/`. Run: `pytest open_fdd/tests/ -v`. All use in
 
 ## Run BACnet scrape
 
-With DB and diy-bacnet-server reachable:
+With SeleneDB reachable and the BACnet/IP network on the scraper's host NIC:
 
-- **One shot:** `OFDD_BACNET_SERVER_URL=http://localhost:8080 python -m openfdd_stack.platform.drivers.run_bacnet_scrape`
-- **Loop:** add `--loop` (uses `OFDD_BACNET_SCRAPE_INTERVAL_MIN` or GET /config).
+- **One shot:** `python -m openfdd_stack.platform.drivers.run_bacnet_scrape`
+- **Loop:** add `--loop` (uses `OFDD_BACNET_SCRAPE_INTERVAL_MIN`).
 
-**Confirm scraping:** Docker logs `openfdd_bacnet_scraper`; DB `timeseries_readings`; [Grafana SQL cookbook](../howto/grafana_cookbook); API `GET /download/csv`.
+**Confirm scraping:** `docker logs openfdd_bacnet_scraper` (look for `bacnet scrape: wrote=N errors=…`); SeleneDB timeseries under each `:point` node's id; API `GET /download/csv` for samples joined into the CRUD view.
 
 ---
 

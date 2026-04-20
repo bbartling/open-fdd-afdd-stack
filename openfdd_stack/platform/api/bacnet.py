@@ -467,8 +467,8 @@ def _post_rpc_via_bacnet_container_if_local_gateway(
     execute the JSON-RPC call inside the bacnet-server container when API container networking
     cannot reach host/Caddy paths (common with strict host<->bridge routing).
     """
-    use_fallback = (os.environ.get("OFDD_BACNET_DOCKER_EXEC_FALLBACK") or "true").strip().lower()
-    if use_fallback in {"0", "false", "no", "off"}:
+    use_fallback = (os.environ.get("OFDD_BACNET_DOCKER_EXEC_FALLBACK") or "false").strip().lower()
+    if use_fallback in {"", "0", "false", "no", "off"}:
         return None
     configured = (configured_url or "").strip().rstrip("/")
     local_candidates = {"http://caddy:8081", "http://host.docker.internal:8080", "http://localhost:8080", "http://127.0.0.1:8080"}
@@ -481,7 +481,11 @@ def _post_rpc_via_bacnet_container_if_local_gateway(
     try:
         import docker
     except Exception as e:
-        return {"ok": False, "error": f"docker-exec fallback unavailable: {e}"}
+        logger.warning(
+            "OFDD_BACNET_DOCKER_EXEC_FALLBACK is enabled but docker import failed: %s",
+            e,
+        )
+        return None
 
     payload = {**_BASE_PAYLOAD, "method": method, "params": params}
     payload_b64 = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")

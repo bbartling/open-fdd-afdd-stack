@@ -993,7 +993,7 @@ ensure_collector_mode_bacnet_server_url() {
   if [[ -n "${BACNET_SERVER_URL_CLI:-}" ]]; then
     return 0
   fi
-  local f="$STACK_DIR/.env" cur_line cur_val lower
+  local f="$STACK_DIR/.env" cur_line cur_val lower bind_ip target_url
   [[ -f "$f" ]] || touch "$f"
   cur_line=$(grep -E '^OFDD_BACNET_SERVER_URL=' "$f" 2>/dev/null | tail -1 || true)
   cur_val=""
@@ -1005,8 +1005,12 @@ ensure_collector_mode_bacnet_server_url() {
   if [[ -n "$cur_line" ]] && [[ "$lower" != *"caddy:8081"* ]]; then
     return 0
   fi
-  env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "http://host.docker.internal:8080"
-  echo "Collector mode: set OFDD_BACNET_SERVER_URL=http://host.docker.internal:8080 (Caddy is not started in this mode)."
+  target_url="http://host.docker.internal:8080"
+  if bind_ip="$(stack_env_bacnet_bind_ipv4 "$f" 2>/dev/null)"; then
+    target_url="http://${bind_ip}:8080"
+  fi
+  env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "$target_url"
+  echo "Collector mode: set OFDD_BACNET_SERVER_URL=${target_url} (Caddy is not started in this mode)."
 }
 
 # Linux: API on the bridge cannot hairpin to host.docker.internal:8080 when bacnet-server uses network_mode:host.
@@ -1066,22 +1070,23 @@ api_key = (os.environ.get("OFDD_API_KEY") or "").strip()
 if api_key:
     headers["Authorization"] = "Bearer " + api_key
 last_exc = None
-for attempt in range(1, 9):
+for attempt in range(1, 4):
+    print(f"BACnet (API→gateway): attempt {attempt}/3")
     try:
         r = httpx.post(url, json={}, headers=headers, timeout=20.0, trust_env=False)
     except Exception as exc:
         last_exc = exc
-        time.sleep(1.5)
+        time.sleep(1.0)
         continue
     if not r.is_success:
         last_exc = "HTTP %s %s" % (r.status_code, (r.text or "")[:160])
-        time.sleep(1.5)
+        time.sleep(1.0)
         continue
     try:
         data = r.json()
     except Exception:
         last_exc = "non-JSON " + (r.text or "")[:160]
-        time.sleep(1.5)
+        time.sleep(1.0)
         continue
     if isinstance(data, dict) and data.get("ok"):
         print("BACnet (API→gateway): OK via Open-FDD", url)
@@ -1603,6 +1608,8 @@ verify_ufw_firewall_for_bacnet_lab() {
       echo "FAIL --verify-firewall-strict: ufw active but required 8080/tcp or 47808/udp rule missing."
       exit 1
     fi
+  elif [[ "$ok8080" -eq 1 ]] && [[ "$ok47808" -eq 1 ]]; then
+    echo "OK   ufw: all BACnet lab rules present (8080/tcp + 47808/udp)"
   fi
 }
 

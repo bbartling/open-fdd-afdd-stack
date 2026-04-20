@@ -1,6 +1,8 @@
 """Unit tests for download API."""
 
+import csv
 from datetime import date
+from io import StringIO
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -300,15 +302,18 @@ def test_download_faults_identity_columns_from_evidence_csv_and_json():
             "/download/faults?start_date=2024-01-01&end_date=2024-01-31&format=csv"
         )
     assert r_csv.status_code == 200
-    csv_body = r_csv.text
-    assert "point_id" in csv_body
-    assert "external_id" in csv_body
-    assert "object_identifier" in csv_body
-    assert "object_name" in csv_body
-    assert "pt-123" in csv_body
-    assert "SA-T" in csv_body
-    assert "analog-input,2" in csv_body
-    assert "Supply Air Temp" in csv_body
+    reader = csv.DictReader(StringIO(r_csv.text.lstrip("\ufeff")))
+    assert reader.fieldnames is not None
+    for col in ("point_id", "external_id", "object_identifier", "object_name"):
+        assert col in reader.fieldnames
+    parsed_rows = list(reader)
+    assert any(
+        row.get("point_id") == "pt-123"
+        and row.get("external_id") == "SA-T"
+        and row.get("object_identifier") == "analog-input,2"
+        and row.get("object_name") == "Supply Air Temp"
+        for row in parsed_rows
+    )
 
     conn2 = _mock_conn(fetchall=rows)
     with patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn2):
@@ -336,8 +341,16 @@ def test_download_faults_rejects_datetime_query_values():
         .get("errors", [])
     )
     assert isinstance(errors, list)
-    assert any("start_date" in str(d.get("loc", "")) for d in errors if isinstance(d, dict))
-    assert any("zero time" in str(d.get("msg", "")).lower() for d in errors if isinstance(d, dict))
+    assert any(
+        "start_date" in str(d.get("loc", "")) and "zero time" in str(d.get("msg", "")).lower()
+        for d in errors
+        if isinstance(d, dict)
+    )
+    assert any(
+        "end_date" in str(d.get("loc", "")) and "zero time" in str(d.get("msg", "")).lower()
+        for d in errors
+        if isinstance(d, dict)
+    )
 
 
 def test_download_faults_200_json():

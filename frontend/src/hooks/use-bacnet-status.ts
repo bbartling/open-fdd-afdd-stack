@@ -106,6 +106,6 @@ export function useBacnetStatus(): UseQueryResult<BacnetStatusResult, Error> {
     },
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
-    retry: 1,
+    retry: false,
   });
 }

@@ -51,8 +51,13 @@ for _ in range(12):
     if isinstance(data, dict) and data.get("ok"):
         print("OK   BACnet (API→gateway) via Open-FDD", url)
         sys.exit(0)
-    print("FAIL BACnet (API→gateway):", data)
-    sys.exit(1)
+    if isinstance(data, dict):
+        err_txt = (data.get("error") or data.get("text") or data.get("body") or data)
+        last_err = "ok=false " + str(err_txt)[:400]
+    else:
+        last_err = "unexpected JSON " + str(data)[:400]
+    time.sleep(1.5)
+    continue
 print("FAIL BACnet (API→gateway):", last_err)
 sys.exit(1)
 PYCHECK

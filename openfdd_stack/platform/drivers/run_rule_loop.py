@@ -52,18 +52,19 @@ def _runtime_loop_settings() -> tuple[float, int, int, str | None]:
     """
     # fdd-loop is a separate process from the API, so refresh graph-backed config
     # from the shared TTL before reading settings.
+    log = logging.getLogger("open_fdd.fdd_loop")
     try:
         load_from_file()
         set_config_overlay(get_config_from_graph())
-    except Exception:
+    except Exception as e:
         # Keep loop running with env defaults if TTL parse/read fails.
-        pass
+        log.error("Failed to refresh graph-backed runtime config; continuing: %s", e, exc_info=True)
 
     settings = get_platform_settings()
     interval_hours = float(getattr(settings, "rule_interval_hours", 3.0))
     sleep_sec = max(60, int(interval_hours * 3600))  # avoid tight loop
     lookback_days = int(getattr(settings, "lookback_days", 3))
-    trigger_path = getattr(settings, "fdd_trigger_file", None)
+    trigger_path = getattr(settings, "fdd_trigger_file", None) or "config/.run_fdd_now"
     return interval_hours, sleep_sec, lookback_days, trigger_path
 
 
@@ -173,7 +174,7 @@ def main() -> int:
                                 e,
                             )
                         log.info("Trigger file detected → running now, timer reset")
-                        _run()
+                        _run(lookback_days=lookback_days)
                         elapsed = 0  # reset timer
             log.info("Next run in %.2f h", interval_hours)
     else:

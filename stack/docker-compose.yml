@@ -269,7 +269,6 @@ services:
         condition: service_healthy
     networks:
       - default
-      - shared
     restart: unless-stopped
     logging:
       driver: json-file

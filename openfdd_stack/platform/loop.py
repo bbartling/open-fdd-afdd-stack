@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 import pandas as pd
-from psycopg2.extras import execute_values
+from psycopg2.extras import Json, execute_values
 
 from openfdd_stack.platform.config import get_platform_settings
 from openfdd_stack.platform.database import get_conn
@@ -556,6 +556,9 @@ def _write_fault_results(results: list[FDDResult]) -> None:
     """Bulk insert fault_results. Coerce site_id/equipment_id to str so UUID never reaches psycopg2."""
     rows = []
     for r in results:
+        evidence = r.evidence
+        if isinstance(evidence, (dict, list)):
+            evidence = Json(evidence)
         rows.append(
             (
                 r.ts,
@@ -563,7 +566,7 @@ def _write_fault_results(results: list[FDDResult]) -> None:
                 str(r.equipment_id),
                 r.fault_id,
                 r.flag_value,
-                r.evidence,
+                evidence,
             )
         )
     with get_conn() as conn:

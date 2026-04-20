@@ -1,6 +1,8 @@
 """Unit tests for download API."""
 
+import csv
 from datetime import date
+from io import StringIO
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -275,6 +277,80 @@ def test_download_faults_200_csv():
     assert first_line.split(",")[0] == "timestamp"
     assert "fault_flatline_flag" in body
     assert "default" in body
+
+
+def test_download_faults_identity_columns_from_evidence_csv_and_json():
+    """When evidence includes point identity, export includes those fields for CSV and JSON."""
+    rows = [
+        {
+            "ts": "2024-01-15 10:00:00",
+            "site_id": "default",
+            "equipment_id": "AHU-1",
+            "fault_id": "bad_sensor_flag",
+            "flag_value": 1,
+            "evidence": {
+                "point_id": "pt-123",
+                "external_id": "SA-T",
+                "object_identifier": "analog-input,2",
+                "object_name": "Supply Air Temp",
+            },
+        },
+    ]
+    conn = _mock_conn(fetchall=rows)
+    with patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn):
+        r_csv = client.get(
+            "/download/faults?start_date=2024-01-01&end_date=2024-01-31&format=csv"
+        )
+    assert r_csv.status_code == 200
+    reader = csv.DictReader(StringIO(r_csv.text.lstrip("\ufeff")))
+    assert reader.fieldnames is not None
+    for col in ("point_id", "external_id", "object_identifier", "object_name"):
+        assert col in reader.fieldnames
+    parsed_rows = list(reader)
+    assert any(
+        row.get("point_id") == "pt-123"
+        and row.get("external_id") == "SA-T"
+        and row.get("object_identifier") == "analog-input,2"
+        and row.get("object_name") == "Supply Air Temp"
+        for row in parsed_rows
+    )
+
+    conn2 = _mock_conn(fetchall=rows)
+    with patch("openfdd_stack.platform.api.download.get_conn", side_effect=lambda: conn2):
+        r_json = client.get(
+            "/download/faults?start_date=2024-01-01&end_date=2024-01-31&format=json"
+        )
+    assert r_json.status_code == 200
+    out = r_json.json()
+    row = out["faults"][0]
+    assert row["point_id"] == "pt-123"
+    assert row["external_id"] == "SA-T"
+    assert row["object_identifier"] == "analog-input,2"
+    assert row["object_name"] == "Supply Air Temp"
+
+
+def test_download_faults_rejects_datetime_query_values():
+    """Contract: /download/faults accepts date-only query params, not full datetimes."""
+    r = client.get(
+        "/download/faults?start_date=2026-04-20T11:00:00Z&end_date=2026-04-21T11:00:00Z&format=json"
+    )
+    assert r.status_code == 422
+    errors = (
+        (r.json().get("error") or {})
+        .get("details", {})
+        .get("errors", [])
+    )
+    assert isinstance(errors, list)
+    assert any(
+        "start_date" in str(d.get("loc", "")) and "zero time" in str(d.get("msg", "")).lower()
+        for d in errors
+        if isinstance(d, dict)
+    )
+    assert any(
+        "end_date" in str(d.get("loc", "")) and "zero time" in str(d.get("msg", "")).lower()
+        for d in errors
+        if isinstance(d, dict)
+    )
 
 
 def test_download_faults_200_json():

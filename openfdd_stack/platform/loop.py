@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 import pandas as pd
-from psycopg2.extras import execute_values
+from psycopg2.extras import Json, execute_values
 
 from openfdd_stack.platform.config import get_platform_settings
 from openfdd_stack.platform.database import get_conn
 from openfdd_stack.platform.graph_model import get_ttl_path_resolved
 from openfdd_stack.platform.site_resolver import resolve_site_uuid
-from open_fdd.schema import FDDResult, results_from_runner_output
+from open_fdd.schema import FDDResult
 
 
 def _fdd_runner_run_kwargs(
@@ -179,6 +179,172 @@ def load_timeseries_for_equipment(
     df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
+
+
+def _point_lookup_for_equipment(
+    site_id: str,
+    equipment_id: str,
+    column_map: dict[str, str],
+) -> dict[str, dict[str, str]]:
+    """Build lookup keys -> point identity metadata for one equipment."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.id, p.external_id, p.fdd_input, p.bacnet_device_id, p.object_identifier, p.object_name
+                FROM points p
+                JOIN equipment e ON p.equipment_id = e.id
+                WHERE (p.site_id = %s OR p.site_id::text = %s)
+                  AND e.name = %s
+                """,
+                (site_id, site_id, equipment_id),
+            )
+            rows = cur.fetchall()
+    inverse_column_map: dict[str, str] = {}
+    for k, v in (column_map or {}).items():
+        ks = str(k or "").strip()
+        vs = str(v or "").strip()
+        if ks and vs and vs not in inverse_column_map:
+            inverse_column_map[vs] = ks
+
+    lookup: dict[str, dict[str, str]] = {}
+    for r in rows:
+        external_id = (r.get("external_id") or "").strip()
+        if not external_id:
+            continue
+        fdd_input = (r.get("fdd_input") or "").strip()
+        mapped_key = (column_map.get(external_id) or external_id).strip()
+        semantic_key = inverse_column_map.get(external_id, "").strip()
+        meta = {
+            "point_id": str(r.get("id") or "").strip(),
+            "external_id": external_id,
+            "bacnet_device_id": str(r.get("bacnet_device_id") or "").strip(),
+            "object_identifier": str(r.get("object_identifier") or "").strip(),
+            "object_name": str(r.get("object_name") or "").strip(),
+        }
+        for key in (external_id, fdd_input, mapped_key, semantic_key):
+            if key and key not in lookup:
+                lookup[key] = meta
+    return lookup
+
+
+def _point_lookup_for_site(
+    site_id: str,
+    column_map: dict[str, str],
+) -> dict[str, dict[str, str]]:
+    """Build lookup keys -> point identity metadata for whole site fallback run."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.id, p.external_id, p.fdd_input, p.bacnet_device_id, p.object_identifier, p.object_name
+                FROM points p
+                WHERE (p.site_id = %s OR p.site_id::text = %s)
+                """,
+                (site_id, site_id),
+            )
+            rows = cur.fetchall()
+    inverse_column_map: dict[str, str] = {}
+    for k, v in (column_map or {}).items():
+        ks = str(k or "").strip()
+        vs = str(v or "").strip()
+        if ks and vs and vs not in inverse_column_map:
+            inverse_column_map[vs] = ks
+
+    lookup: dict[str, dict[str, str]] = {}
+    for r in rows:
+        external_id = (r.get("external_id") or "").strip()
+        if not external_id:
+            continue
+        fdd_input = (r.get("fdd_input") or "").strip()
+        mapped_key = (column_map.get(external_id) or external_id).strip()
+        semantic_key = inverse_column_map.get(external_id, "").strip()
+        meta = {
+            "point_id": str(r.get("id") or "").strip(),
+            "external_id": external_id,
+            "bacnet_device_id": str(r.get("bacnet_device_id") or "").strip(),
+            "object_identifier": str(r.get("object_identifier") or "").strip(),
+            "object_name": str(r.get("object_name") or "").strip(),
+        }
+        for key in (external_id, fdd_input, mapped_key, semantic_key):
+            if key and key not in lookup:
+                lookup[key] = meta
+    return lookup
+
+
+def _results_with_provenance(
+    df: pd.DataFrame,
+    site_id: str,
+    equipment_id: str,
+    rules: list[dict],
+    point_lookup: dict[str, dict[str, str]],
+    timestamp_col: str = "timestamp",
+) -> list[FDDResult]:
+    """
+    Convert runner DataFrame rows to FDD results and attach point provenance.
+
+    open-fdd's helper currently writes evidence=None; this keeps fault rows
+    attributable by carrying point metadata derived from rule inputs.
+    """
+    results: list[FDDResult] = []
+    if len(df) == 0:
+        return results
+
+    flag_cols = [c for c in df.columns if str(c).endswith("_flag")]
+    ts_series = df[timestamp_col]
+    if hasattr(ts_series.iloc[0], "to_pydatetime"):
+        ts_series = ts_series.dt.tz_localize(None) if ts_series.dt.tz else ts_series
+
+    rule_by_flag: dict[str, dict] = {}
+    for rule in rules:
+        if isinstance(rule, dict):
+            flag = rule.get("flag")
+            if isinstance(flag, str) and flag:
+                rule_by_flag[flag] = rule
+
+    for pos in range(len(df)):
+        row = df.iloc[pos]
+        t = ts_series.iloc[pos]
+        if hasattr(t, "to_pydatetime"):
+            t = t.to_pydatetime()
+        for col in flag_cols:
+            val = row.get(col, 0)
+            if val is None or pd.isna(val):
+                continue
+            if not bool(val):
+                continue
+            rule = rule_by_flag.get(col, {})
+            inputs = rule.get("inputs") if isinstance(rule, dict) else {}
+            input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
+            candidates = [
+                point_lookup[k]
+                for k in input_keys
+                if isinstance(k, str) and k in point_lookup
+            ]
+            primary = candidates[0] if candidates else None
+            evidence = {
+                "rule_name": rule.get("name") if isinstance(rule, dict) else None,
+                "fault_flag": col,
+                "source": {
+                    "input_keys": input_keys,
+                    "point_candidates": candidates,
+                },
+            }
+            if primary:
+                evidence.update(primary)
+                evidence["point"] = primary
+
+            results.append(
+                FDDResult(
+                    ts=t,
+                    site_id=site_id,
+                    equipment_id=equipment_id,
+                    fault_id=col,
+                    flag_value=1,
+                    evidence=evidence,
+                )
+            )
+    return results
 
 
 def _sync_fault_definitions_from_rules(rules: list) -> None:
@@ -375,8 +541,14 @@ def run_fdd_loop(
                         settings, strict=strict, column_map=column_map
                     ),
                 )
-                results = results_from_runner_output(
-                    res, sid, eq_name, timestamp_col="timestamp"
+                point_lookup = _point_lookup_for_equipment(sid, eq_name, column_map)
+                results = _results_with_provenance(
+                    res,
+                    sid,
+                    eq_name,
+                    rules,
+                    point_lookup,
+                    timestamp_col="timestamp",
                 )
                 all_results.extend(results)
             # Fallback: site-level run when no equipment had enough data
@@ -390,8 +562,14 @@ def run_fdd_loop(
                             settings, strict=strict, column_map=column_map
                         ),
                     )
-                    results = results_from_runner_output(
-                        res, sid, site_name, timestamp_col="timestamp"
+                    point_lookup = _point_lookup_for_site(sid, column_map)
+                    results = _results_with_provenance(
+                        res,
+                        sid,
+                        site_name,
+                        rules,
+                        point_lookup=point_lookup,
+                        timestamp_col="timestamp",
                     )
                     all_results.extend(results)
             elif ran_equipment:
@@ -436,6 +614,9 @@ def _write_fault_results(results: list[FDDResult]) -> None:
     """Bulk insert fault_results. Coerce site_id/equipment_id to str so UUID never reaches psycopg2."""
     rows = []
     for r in results:
+        evidence = r.evidence
+        if isinstance(evidence, (dict, list)):
+            evidence = Json(evidence)
         rows.append(
             (
                 r.ts,
@@ -443,7 +624,7 @@ def _write_fault_results(results: list[FDDResult]) -> None:
                 str(r.equipment_id),
                 r.fault_id,
                 r.flag_value,
-                r.evidence,
+                evidence,
             )
         )
     with get_conn() as conn:

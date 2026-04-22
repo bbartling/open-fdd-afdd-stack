@@ -2126,14 +2126,14 @@ reset_data_via_api() {
     echo "  No sites to delete."
   fi
 
-  if curl -sf -X POST "$API_BASE/data-model/reset" -H "Content-Type: application/json" "${curl_auth[@]}" -d '{}' >/dev/null 2>&1; then
-    echo "  POST /data-model/reset OK."
+  if curl -sf -X POST "$API_BASE/data-model/reset?clear_fault_history=true" -H "Content-Type: application/json" "${curl_auth[@]}" -d '{}' >/dev/null 2>&1; then
+    echo "  POST /data-model/reset?clear_fault_history=true OK."
   else
     echo "  POST /data-model/reset failed."
     return 1
   fi
 
-  echo "Data model is now empty (no sites, no Brick triples, no BACnet)."
+  echo "Data model and fault history are now reset for a clean test bench start."
   return 0
 }
 

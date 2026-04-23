@@ -163,6 +163,26 @@ export function dataModelCheck() {
   return apiFetch<DataModelCheckResponse>("/data-model/check");
 }
 
+/**
+ * Purge timeseries rows.
+ *
+ * WARNING: passing undefined/empty siteId sends `{}` and triggers a global purge
+ * (`scope: "all"`). Pass a valid siteId to scope deletion to one site.
+ */
+export function purgeTimeseries(siteId?: string) {
+  return apiFetch<{
+    status: string;
+    scope: "all" | "site";
+    site_id: string | null;
+    deleted_rows: number;
+    message?: string;
+  }>("/timeseries/purge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(siteId ? { site_id: siteId } : {}),
+  });
+}
+
 export function listEnergyCalcTypes() {
   return apiFetch<{ calc_types: EnergyCalcTypePublic[] }>("/energy-calculations/calc-types");
 }

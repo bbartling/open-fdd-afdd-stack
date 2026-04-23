@@ -1,9 +1,10 @@
-"""Timeseries API — latest value per point for dashboards (HA, Grafana-style)."""
+"""Timeseries API — latest value per point and purge operations."""
 
 from datetime import timezone
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from openfdd_stack.platform.database import get_conn
 
@@ -21,6 +22,13 @@ router = APIRouter(
     prefix="/timeseries",
     tags=["timeseries"],
 )
+
+
+class TimeseriesPurgeRequest(BaseModel):
+    site_id: Optional[str] = Field(
+        default=None,
+        description="Optional site UUID or name. Omit to purge all sites.",
+    )
 
 
 @router.get(
@@ -84,3 +92,50 @@ def get_timeseries_latest(
         }
         for r in rows
     ]
+
+
+@router.post(
+    "/purge",
+    summary="Purge timeseries rows (keep data model)",
+    description=(
+        "Delete rows from timeseries_readings while keeping sites/equipment/points/data model intact. "
+        "Use optional site_id to purge one site only."
+    ),
+)
+def purge_timeseries(
+    body: Annotated[TimeseriesPurgeRequest | None, Body()] = None,
+):
+    """Delete timeseries rows only; data model rows are unchanged."""
+    body = body or TimeseriesPurgeRequest()
+    site_uuid: Optional[str] = None
+    if body.site_id and body.site_id.strip():
+        token = body.site_id.strip()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id::text AS id FROM sites WHERE id::text = %s OR name = %s LIMIT 1",
+                    (token, token),
+                )
+                row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, f"No site found for: {body.site_id!r}")
+            site_uuid = str(row["id"])
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if site_uuid:
+                cur.execute("DELETE FROM timeseries_readings WHERE site_id = %s", (site_uuid,))
+                scope = "site"
+            else:
+                cur.execute("DELETE FROM timeseries_readings")
+                scope = "all"
+            deleted_rows = int(cur.rowcount or 0)
+        conn.commit()
+
+    return {
+        "status": "ok",
+        "scope": scope,
+        "site_id": site_uuid,
+        "deleted_rows": deleted_rows,
+        "message": "Timeseries purged; data model retained.",
+    }

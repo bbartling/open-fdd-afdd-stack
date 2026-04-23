@@ -259,7 +259,7 @@ export function ConfigPage() {
             <ConfigField
               label="Scrape interval (min)"
               type="number"
-              value={form.bacnet_scrape_interval_min ?? 1}
+              value={form.bacnet_scrape_interval_min ?? 5}
               onChange={(v) => update("bacnet_scrape_interval_min", Number(v))}
               min={0}
               data-testid="config-bacnet-scrape-interval"

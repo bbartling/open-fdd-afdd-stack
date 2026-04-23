@@ -15,6 +15,12 @@ nav_exclude: true
 
 `./scripts/bootstrap.sh --reset-data` is different: it performs an API-driven test-bench reset (delete all sites, then `POST /data-model/reset?clear_fault_history=true`).
 
+For upgrades where you want to keep model knowledge but drop old telemetry, use:
+
+- `./scripts/bootstrap.sh --purge-timeseries` (calls `POST /timeseries/purge`)
+
+This keeps sites/equipment/points/data model and only clears `timeseries_readings`.
+
 ---
 
 ## OpenClaw / API-only agent scope

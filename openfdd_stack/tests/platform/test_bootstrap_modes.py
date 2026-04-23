@@ -40,6 +40,7 @@ def test_bootstrap_help_lists_mode_flag():
     assert "--bacnet-name" not in res.stdout
     assert "--allow-no-ui-auth" in res.stdout
     assert "--doctor" in res.stdout
+    assert "--purge-timeseries" in res.stdout
 
 
 def test_bootstrap_rejects_invalid_mode():
@@ -60,4 +61,17 @@ def test_bootstrap_frontend_test_path_has_host_fallback_docs():
     script_text = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
     assert "Frontend container test path failed; attempting host npm fallback" in script_text
     assert "Frontend: OK (via host npm fallback)" in script_text
+
+
+def test_bootstrap_has_container_connectivity_summary_checks():
+    script_text = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
+    assert "Container connectivity checks (frontend→api, api→BACnet)" in script_text
+    assert "Container hop (frontend→api):" in script_text
+    assert "Container hop (api→BACnet):" in script_text
+
+
+def test_bootstrap_seeds_internal_bacnet_proxy_url_default():
+    script_text = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
+    assert "os.environ.get('OFDD_BACNET_SERVER_URL', 'http://caddy:8081')" in script_text
+    assert "\\\"bacnet_server_url\\\":\\\"http://caddy:8081\\\"" in script_text
 

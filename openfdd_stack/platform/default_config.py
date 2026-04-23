@@ -16,8 +16,8 @@ DEFAULT_BRICK_TTL_DIR = "config"
 # BACnet driver — host-side dev default (browser on same machine as diy-bacnet).
 # Docker: set OFDD_BACNET_SERVER_URL in stack/.env (overrides graph + this default at runtime).
 DEFAULT_BACNET_ENABLED = True
-DEFAULT_BACNET_SCRAPE_INTERVAL_MIN = 1  # 5 in production
-DEFAULT_BACNET_SERVER_URL = "http://localhost:8080"
+DEFAULT_BACNET_SCRAPE_INTERVAL_MIN = 5
+DEFAULT_BACNET_SERVER_URL = "http://caddy:8081"
 DEFAULT_BACNET_SITE_ID = "default"
 DEFAULT_BACNET_GATEWAYS = ""  # JSON array of gateways; future multi-gateway feature
 

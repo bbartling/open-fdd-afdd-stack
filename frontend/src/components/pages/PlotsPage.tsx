@@ -8,6 +8,7 @@ import { DateRangeSelect } from "@/components/site/DateRangeSelect";
 import type { DatePreset } from "@/components/site/DateRangeSelect";
 import { Skeleton } from "@/components/ui/skeleton";
 import { downloadTimeseriesCsv, fetchCsv } from "@/lib/csv";
+import { purgeTimeseries } from "@/lib/crud-api";
 import {
   inferYColumns,
   joinFaultSignals,
@@ -15,7 +16,7 @@ import {
   pickFaultBucket,
   type ParsedCsv,
 } from "@/lib/plots-csv";
-import { ChartLine, Download, RefreshCw } from "lucide-react";
+import { ChartLine, Download, RefreshCw, Trash2 } from "lucide-react";
 
 function presetRange(preset: DatePreset): { start: string; end: string } {
   const end = new Date();
@@ -121,8 +122,10 @@ export function PlotsPage() {
   const [selectedFaultId, setSelectedFaultId] = useState<string>("");
   const [loadingCsv, setLoadingCsv] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const [purgingTimeseries, setPurgingTimeseries] = useState(false);
   const [parsedCsv, setParsedCsv] = useState<ParsedCsv | null>(null);
   const [yColumns, setYColumns] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const prevSiteIdRef = useRef<string | null>(null);
@@ -269,6 +272,7 @@ export function PlotsPage() {
   const loadOpenFddCsv = useCallback(async () => {
     if (!selectedSiteId) return;
     setLoadingCsv(true);
+    setNotice(null);
     try {
       const csv = await fetchCsv({
         site_id: selectedSiteId,
@@ -289,6 +293,7 @@ export function PlotsPage() {
     if (!selectedSiteId || pointIdsForExport.length === 0) return;
     setDownloadingCsv(true);
     setError(null);
+    setNotice(null);
     try {
       const startD = toDateOnly(start);
       const endD = toDateOnly(end);
@@ -308,6 +313,27 @@ export function PlotsPage() {
       setDownloadingCsv(false);
     }
   }, [selectedSiteId, start, end, pointIdsForExport, selectedDeviceId]);
+
+  const purgeSiteTimeseries = useCallback(async () => {
+    if (!selectedSiteId) return;
+    const confirmed = window.confirm(
+      "Purge timeseries for the selected site? This keeps sites/equipment/points and only deletes historical readings.",
+    );
+    if (!confirmed) return;
+    setPurgingTimeseries(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const out = await purgeTimeseries(selectedSiteId);
+      setParsedCsv(null);
+      setYColumns([]);
+      setNotice(`Timeseries purged for site. Deleted rows: ${out.deleted_rows}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to purge timeseries.");
+    } finally {
+      setPurgingTimeseries(false);
+    }
+  }, [selectedSiteId]);
 
   const effectiveCsv = useMemo(() => {
     if (!parsedCsv || !selectedFaultId) return parsedCsv;
@@ -610,8 +636,18 @@ export function PlotsPage() {
             <Download className="h-4 w-4" />
             {downloadingCsv ? "Downloading..." : "Download CSV"}
           </button>
+          <button
+            type="button"
+            onClick={() => void purgeSiteTimeseries()}
+            disabled={purgingTimeseries || !selectedSiteId}
+            className="inline-flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive disabled:opacity-50"
+            title="Deletes timeseries rows for the selected site while keeping model data."
+          >
+            <Trash2 className="h-4 w-4" />
+            {purgingTimeseries ? "Purging..." : "Purge timeseries (site)"}
+          </button>
           <span className="text-xs text-muted-foreground">
-            Timestamp is fixed to `timestamp`; fault data is joined automatically when available. CSV download matches the selected device, points, and date range (same as Load); opens cleanly in Excel.
+            Timestamp is fixed to `timestamp`; fault data is joined automatically when available. CSV download matches the selected device, points, and date range (same as Load); opens cleanly in Excel. Purge clears old readings only and keeps the data model.
           </span>
         </div>
       </div>
@@ -619,6 +655,11 @@ export function PlotsPage() {
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+          {notice}
         </div>
       )}
 

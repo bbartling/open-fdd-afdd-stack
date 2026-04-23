@@ -139,6 +139,11 @@ def test_run_fdd_loop_honors_equipment_types_plural_and_hot_reload(tmp_path):
     filters correctly and picks up create/delete edits each run.
     """
     set_config_overlay({"rules_dir": str(tmp_path.resolve())})
+    ttl_path = tmp_path / "data_model.ttl"
+    ttl_path.write_text(
+        "@prefix ofdd: <http://openfdd.local/ontology#> .\n",
+        encoding="utf-8",
+    )
 
     load_return_sequence = [
         [{"name": "meter_rule", "flag": "meter_flag", "equipment_types": ["Electric_Meter"]}],
@@ -173,6 +178,7 @@ def test_run_fdd_loop_honors_equipment_types_plural_and_hot_reload(tmp_path):
             return_value={},
         ),
         patch("openfdd_stack.platform.loop._sync_fault_definitions_from_rules", lambda _r: None),
+        patch("openfdd_stack.platform.loop.get_ttl_path_resolved", return_value=str(ttl_path)),
     ):
         from openfdd_stack.platform.loop import run_fdd_loop
 

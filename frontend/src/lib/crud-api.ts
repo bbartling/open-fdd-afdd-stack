@@ -163,6 +163,12 @@ export function dataModelCheck() {
   return apiFetch<DataModelCheckResponse>("/data-model/check");
 }
 
+/**
+ * Purge timeseries rows.
+ *
+ * WARNING: passing undefined/empty siteId sends `{}` and triggers a global purge
+ * (`scope: "all"`). Pass a valid siteId to scope deletion to one site.
+ */
 export function purgeTimeseries(siteId?: string) {
   return apiFetch<{
     status: string;

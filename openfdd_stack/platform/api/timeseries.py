@@ -1,13 +1,12 @@
 """Timeseries API — latest value per point and purge operations."""
 
 from datetime import timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from openfdd_stack.platform.database import get_conn
-from openfdd_stack.platform.site_resolver import resolve_site_uuid
 
 
 def _ts_to_iso_utc(dt):
@@ -104,15 +103,23 @@ def get_timeseries_latest(
     ),
 )
 def purge_timeseries(
-    body: TimeseriesPurgeRequest = Body(default_factory=TimeseriesPurgeRequest),
+    body: Annotated[TimeseriesPurgeRequest | None, Body()] = None,
 ):
     """Delete timeseries rows only; data model rows are unchanged."""
+    body = body or TimeseriesPurgeRequest()
     site_uuid: Optional[str] = None
     if body.site_id and body.site_id.strip():
-        resolved = resolve_site_uuid(body.site_id.strip(), create_if_empty=False)
-        if resolved is None:
-            raise HTTPException(404, f"No site found for: {body.site_id!r}")
-        site_uuid = str(resolved)
+        token = body.site_id.strip()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id::text AS id FROM sites WHERE id::text = %s OR name = %s LIMIT 1",
+                    (token, token),
+                )
+                row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, f"No site found for: {body.site_id!r}")
+            site_uuid = str(row["id"])
 
     with get_conn() as conn:
         with conn.cursor() as cur:

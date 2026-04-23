@@ -3,7 +3,7 @@
 Historically three layers existed without a single written contract, which caused bugs:
 
 1. **Code defaults** — ``openfdd_stack/platform/default_config.py`` → ``DEFAULT_PLATFORM_CONFIG``
-   (e.g. ``bacnet_server_url: http://localhost:8080``). Used when the RDF graph has no platform
+   (e.g. ``bacnet_server_url: http://caddy:8081`` for container-internal proxy path). Used when the RDF graph has no platform
    config and for GET /config fallback.
 
 2. **RDF graph / ``config/data_model.ttl``** — ``ofdd:bacnetServerUrl`` is loaded at API startup into
@@ -11,8 +11,7 @@ Historically three layers existed without a single written contract, which cause
    config (PUT /config) and matches SPARQL / knowledge-graph workflows.
 
 3. **Process environment** — ``OFDD_BACNET_SERVER_URL`` in ``stack/.env``, injected by Docker Compose.
-   In containers, ``localhost`` in the graph points at the **container**, not the host. Docker stacks
-   therefore **must** set ``OFDD_BACNET_SERVER_URL`` to a host-reachable URL (LAN IP, host-gateway, etc.).
+   In containers, this must resolve from API container to gateway (recommended internal path: ``http://caddy:8081``).
 
 **Contract (after regression fixes):**
 
@@ -26,9 +25,9 @@ Historically three layers existed without a single written contract, which cause
 - ``_effective_bacnet_server_url()`` (BACnet proxy): already preferred ``os.environ`` first; it must
   stay aligned with ``get_platform_settings().bacnet_server_url`` for the default gateway.
 
-**What is *not* duplicated incorrectly:** keeping ``http://localhost:8080`` in the TTL for dev
-machines is fine; production Docker must set ``OFDD_BACNET_SERVER_URL``. The tests below lock
-precedence so graph-only localhost cannot silently override compose again.
+**What is *not* duplicated incorrectly:** defaulting to ``http://caddy:8081`` for Docker stacks while still
+allowing explicit overrides via ``OFDD_BACNET_SERVER_URL``. The tests below lock precedence so graph-only
+values cannot silently override compose/env runtime behavior.
 """
 
 from __future__ import annotations
@@ -73,12 +72,12 @@ def test_get_config_display_overrides_graph_bacnet_url_with_env(monkeypatch: pyt
         monkeypatch.delenv("OFDD_BACNET_SERVER_URL", raising=False)
 
 
-def test_default_platform_config_constant_matches_graph_dev_literal() -> None:
-    """DEFAULT_PLATFORM_CONFIG and typical data_model.ttl both use localhost for host-side dev."""
+def test_default_platform_config_constant_matches_internal_proxy_default() -> None:
+    """DEFAULT_PLATFORM_CONFIG uses internal Caddy proxy URL by default."""
     from openfdd_stack.platform.default_config import DEFAULT_BACNET_SERVER_URL, DEFAULT_PLATFORM_CONFIG
 
     assert DEFAULT_PLATFORM_CONFIG["bacnet_server_url"] == DEFAULT_BACNET_SERVER_URL
-    assert DEFAULT_BACNET_SERVER_URL == "http://localhost:8080"
+    assert DEFAULT_BACNET_SERVER_URL == "http://caddy:8081"
 
 
 def test_graph_only_bacnet_url_used_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:

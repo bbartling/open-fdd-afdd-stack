@@ -125,6 +125,7 @@ export function PlotsPage() {
   const [purgingTimeseries, setPurgingTimeseries] = useState(false);
   const [parsedCsv, setParsedCsv] = useState<ParsedCsv | null>(null);
   const [yColumns, setYColumns] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const prevSiteIdRef = useRef<string | null>(null);
@@ -271,6 +272,7 @@ export function PlotsPage() {
   const loadOpenFddCsv = useCallback(async () => {
     if (!selectedSiteId) return;
     setLoadingCsv(true);
+    setNotice(null);
     try {
       const csv = await fetchCsv({
         site_id: selectedSiteId,
@@ -291,6 +293,7 @@ export function PlotsPage() {
     if (!selectedSiteId || pointIdsForExport.length === 0) return;
     setDownloadingCsv(true);
     setError(null);
+    setNotice(null);
     try {
       const startD = toDateOnly(start);
       const endD = toDateOnly(end);
@@ -318,11 +321,13 @@ export function PlotsPage() {
     );
     if (!confirmed) return;
     setPurgingTimeseries(true);
+    setError(null);
+    setNotice(null);
     try {
       const out = await purgeTimeseries(selectedSiteId);
       setParsedCsv(null);
       setYColumns([]);
-      setError(`Timeseries purged for site. Deleted rows: ${out.deleted_rows}.`);
+      setNotice(`Timeseries purged for site. Deleted rows: ${out.deleted_rows}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to purge timeseries.");
     } finally {
@@ -650,6 +655,11 @@ export function PlotsPage() {
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+          {notice}
         </div>
       )}
 

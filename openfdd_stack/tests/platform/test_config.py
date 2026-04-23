@@ -67,7 +67,7 @@ def test_default_platform_config_values():
     assert (
         DEFAULT_PLATFORM_CONFIG["bacnet_server_url"]
         == DEFAULT_BACNET_SERVER_URL
-        == "http://localhost:8080"
+        == "http://caddy:8081"
     )
     assert (
         DEFAULT_PLATFORM_CONFIG["graph_sync_interval_min"]

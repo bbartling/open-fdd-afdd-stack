@@ -938,13 +938,16 @@ normalize_bacnet_server_url_when_mistaken_for_bind() {
   return 0
 }
 
-# Older stack/.env used host.docker.internal:8080 (Linux hairpin) or http://caddy:8081 (Caddy hop).
-# When OFDD_BACNET_ADDRESS sets an OT IPv4, prefer bridge→host http://<that-ip>:8080 (most reliable).
+# Older stack/.env may use host/LAN URLs. For full/model stack, prefer internal
+# bridge URL http://caddy:8081 for API→gateway calls.
 migrate_ofdd_bacnet_server_url_host_docker_to_caddy() {
   if [[ -n "${BACNET_SERVER_URL_CLI:-}" ]]; then
     return 0
   fi
-  local f="$STACK_DIR/.env" cur_line cur_val lower bind_ip lan_url
+  if [[ "$MODE" == "collector" ]]; then
+    return 0
+  fi
+  local f="$STACK_DIR/.env" cur_line cur_val lower
   [[ -f "$f" ]] || return 0
   cur_line=$(grep -E '^OFDD_BACNET_SERVER_URL=' "$f" 2>/dev/null | tail -1 || true)
   [[ -n "$cur_line" ]] || return 0
@@ -954,24 +957,14 @@ migrate_ofdd_bacnet_server_url_host_docker_to_caddy() {
   cur_val="${cur_val//\'}"
   lower="${cur_val,,}"
   lower="${lower%/}"
-  lan_url=""
-  if bind_ip="$(stack_env_bacnet_bind_ipv4 "$f" 2>/dev/null)"; then
-    lan_url="http://${bind_ip}:8080"
-  fi
-  if [[ "$lower" == "http://host.docker.internal:8080" ]] || [[ "$lower" == "http://host.docker.internal" ]]; then
-    if [[ -n "$lan_url" ]]; then
-      env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "$lan_url"
-      echo "Migrated OFDD_BACNET_SERVER_URL from host.docker.internal to ${lan_url} (bridge→host on BACnet NIC)."
-    else
-      env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "http://caddy:8081"
-      echo "Migrated OFDD_BACNET_SERVER_URL from host.docker.internal to http://caddy:8081 (API→Caddy→host :8080)."
-    fi
-    BOOTSTRAP_RECREATE_API_FRONTEND=true
+  if [[ "$lower" == "http://caddy:8081" ]]; then
     return 0
   fi
-  if [[ "$lower" == *"caddy:8081"* ]] && [[ -n "$lan_url" ]] && [[ "$lower" != "${lan_url,,}" ]]; then
-    env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "$lan_url"
-    echo "Migrated OFDD_BACNET_SERVER_URL from Caddy internal URL to ${lan_url} (direct bridge→host; Caddy remains a runtime fallback in code)."
+  if [[ "$lower" == "http://host.docker.internal:8080" ]] || [[ "$lower" == "http://host.docker.internal" ]] || \
+     [[ "$lower" == "http://localhost:8080" ]] || [[ "$lower" == "http://127.0.0.1:8080" ]] || \
+     [[ "$lower" =~ ^http://([0-9]{1,3}\.){3}[0-9]{1,3}:8080$ ]]; then
+    env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "http://caddy:8081"
+    echo "Migrated OFDD_BACNET_SERVER_URL to internal proxy URL http://caddy:8081."
     BOOTSTRAP_RECREATE_API_FRONTEND=true
   fi
 }
@@ -1002,8 +995,8 @@ ensure_collector_mode_bacnet_server_url() {
 }
 
 # Linux: API on the bridge cannot hairpin to host.docker.internal:8080 when bacnet-server uses network_mode:host.
-# Prefer http://<OFDD_BACNET_ADDRESS-ipv4>:8080 when set, else Caddy internal URL if openfdd_caddy is running,
-  # else default-route src. Eligible when .env omits the key, uses host.docker.internal, or uses caddy:8081.
+# Prefer internal Caddy URL when available; fallback to host-route URL only when Caddy is unavailable.
+# Eligible when .env omits the key, uses host.docker.internal, or uses caddy:8081.
 # Returns 0 when a change was applied (caller should retry).
 repair_stack_env_bacnet_server_url_for_docker_hairpin() {
   if [[ -n "${BACNET_SERVER_URL_CLI:-}" ]]; then
@@ -1021,10 +1014,10 @@ repair_stack_env_bacnet_server_url_for_docker_hairpin() {
     fi
   fi
   inferred_url=""
-  if repair_ip="$(stack_env_bacnet_bind_ipv4 "$ef" 2>/dev/null)"; then
-    inferred_url="http://${repair_ip}:8080"
-  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -qx openfdd_caddy; then
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx openfdd_caddy; then
     inferred_url="http://caddy:8081"
+  elif repair_ip="$(stack_env_bacnet_bind_ipv4 "$ef" 2>/dev/null)"; then
+    inferred_url="http://${repair_ip}:8080"
   elif repair_ip="$(infer_ipv4_default_route_src_linux 2>/dev/null)"; then
     inferred_url="http://${repair_ip}:8080"
   else
@@ -1084,6 +1077,45 @@ for attempt in range(1, 4):
 print("BACnet (API→gateway): FAIL —", last_exc)
 sys.exit(1)
 PYCHECK
+}
+
+validate_container_connectivity_hops() {
+  echo ""
+  echo "=== Container connectivity checks (frontend→api, api→BACnet) ==="
+
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx openfdd_frontend && \
+     docker ps --format '{{.Names}}' 2>/dev/null | grep -qx openfdd_api; then
+    if docker exec openfdd_frontend sh -lc 'wget -q --spider http://api:8000/health' >/dev/null 2>&1; then
+      echo "Container hop (frontend→api): OK (http://api:8000/health)"
+    else
+      echo "Container hop (frontend→api): FAIL (frontend cannot reach api:8000/health)"
+    fi
+  else
+    echo "Container hop (frontend→api): SKIP (frontend/api container not running)"
+  fi
+
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx openfdd_api; then
+    local gateway_url=""
+    gateway_url="$(docker exec openfdd_api sh -lc 'printf %s "${OFDD_BACNET_SERVER_URL:-}"' 2>/dev/null || true)"
+    if [[ -n "$gateway_url" ]] && [[ "$gateway_url" != *"caddy:8081"* ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx openfdd_caddy; then
+      echo "Container hop (api→BACnet): NOTE using non-internal gateway URL ($gateway_url). For internal Docker path prefer http://caddy:8081."
+    fi
+    if openfdd_api_gateway_check_once >/dev/null 2>&1; then
+      if [[ -n "$gateway_url" ]]; then
+        echo "Container hop (api→BACnet): OK (${gateway_url})"
+      else
+        echo "Container hop (api→BACnet): OK (OFDD_BACNET_SERVER_URL unset; API default path worked)"
+      fi
+    else
+      if [[ -n "$gateway_url" ]]; then
+        echo "Container hop (api→BACnet): FAIL (${gateway_url})"
+      else
+        echo "Container hop (api→BACnet): FAIL (OFDD_BACNET_SERVER_URL unresolved in API env)"
+      fi
+    fi
+  else
+    echo "Container hop (api→BACnet): SKIP (api container not running)"
+  fi
 }
 
 # When the DIY gateway responds on the host but the API container cannot reach it, fix stack/.env and recreate services.
@@ -1181,8 +1213,7 @@ apply_bacnet_gateway_cli_to_env() {
     env_file_set_kv "$f" "OFDD_BACNET_ADDRESS" "$BACNET_ADDRESS_CLI"
     echo "Wrote OFDD_BACNET_ADDRESS to stack/.env (BACnet/IP bind; dual-NIC / OT LAN)"
     BOOTSTRAP_RECREATE_BACNET=true
-    # network_mode:host — HTTP :8080 on the host. When --bacnet-address is a.b.c.d/…, set OFDD_BACNET_SERVER_URL to
-    # http://a.b.c.d:8080 so bridge containers reach the gateway on the OT NIC (reliable on Linux vs hairpin/Caddy-only).
+    # network_mode:host — prefer internal Caddy URL for API→gateway (full/model stack has Caddy).
     if [[ "$BACNET_ADDRESS_CLI" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/ ]]; then
       local cur_url="" lower lab_bind
       lab_bind="${BACNET_ADDRESS_CLI%%/*}"
@@ -1191,9 +1222,8 @@ apply_bacnet_gateway_cli_to_env() {
       cur_url="${cur_url//\'}"
       lower="${cur_url,,}"
       if [[ -z "${BACNET_SERVER_URL_CLI:-}" ]] && { [[ -z "$cur_url" ]] || [[ "$lower" == *"localhost"* ]] || [[ "$lower" == *"127.0.0.1"* ]] || [[ "$lower" == *"host.docker.internal"* ]] || [[ "$lower" == *"caddy:8081"* ]]; }; then
-        env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "http://${lab_bind}:8080"
-        echo "Set OFDD_BACNET_SERVER_URL=http://${lab_bind}:8080 (bridge → host :8080 on BACnet NIC from --bacnet-address)."
-        echo "  If verify still times out: firewall on :8080, or run $0 --verify --autofix-bacnet"
+        env_file_set_kv "$f" "OFDD_BACNET_SERVER_URL" "http://caddy:8081"
+        echo "Set OFDD_BACNET_SERVER_URL=http://caddy:8081 (internal API→Caddy→host :8080 path)."
         BOOTSTRAP_RECREATE_API_FRONTEND=true
       fi
     fi
@@ -2041,7 +2071,7 @@ print(json.dumps({
     'brick_ttl_dir': os.environ.get('OFDD_BRICK_TTL_DIR', 'config'),
     'bacnet_enabled': env('OFDD_BACNET_SCRAPE_ENABLED', True),
     'bacnet_scrape_interval_min': env('OFDD_BACNET_SCRAPE_INTERVAL_MIN', 5),
-    'bacnet_server_url': os.environ.get('OFDD_BACNET_SERVER_URL', 'http://localhost:8080'),
+    'bacnet_server_url': os.environ.get('OFDD_BACNET_SERVER_URL', 'http://caddy:8081'),
     'bacnet_site_id': os.environ.get('OFDD_BACNET_SITE_ID', 'default'),
     'open_meteo_enabled': env('OFDD_OPEN_METEO_ENABLED', True),
     'open_meteo_interval_hours': env('OFDD_OPEN_METEO_INTERVAL_HOURS', 24),
@@ -2052,7 +2082,7 @@ print(json.dumps({
     'open_meteo_site_id': om_site,
     'graph_sync_interval_min': env('OFDD_GRAPH_SYNC_INTERVAL_MIN', 5),
 }))
-" 2>/dev/null) || body="{\"rule_interval_hours\":0.1,\"lookback_days\":3,\"rules_dir\":\"stack/rules\",\"brick_ttl_dir\":\"config\",\"bacnet_enabled\":true,\"bacnet_scrape_interval_min\":5,\"bacnet_server_url\":\"http://localhost:8080\",\"bacnet_site_id\":\"default\",\"open_meteo_enabled\":true,\"open_meteo_interval_hours\":24,\"open_meteo_latitude\":41.88,\"open_meteo_longitude\":-87.63,\"open_meteo_timezone\":\"America/Chicago\",\"open_meteo_days_back\":3,\"open_meteo_site_id\":\"default\",\"graph_sync_interval_min\":5}"
+" 2>/dev/null) || body="{\"rule_interval_hours\":0.1,\"lookback_days\":3,\"rules_dir\":\"stack/rules\",\"brick_ttl_dir\":\"config\",\"bacnet_enabled\":true,\"bacnet_scrape_interval_min\":5,\"bacnet_server_url\":\"http://caddy:8081\",\"bacnet_site_id\":\"default\",\"open_meteo_enabled\":true,\"open_meteo_interval_hours\":24,\"open_meteo_latitude\":41.88,\"open_meteo_longitude\":-87.63,\"open_meteo_timezone\":\"America/Chicago\",\"open_meteo_days_back\":3,\"open_meteo_site_id\":\"default\",\"graph_sync_interval_min\":5}"
 
   if curl -sf -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" >/dev/null 2>&1; then
     echo "  PUT /config OK (config stored in RDF)."
@@ -2120,8 +2150,21 @@ purge_timeseries_via_api() {
 
   local curl_auth=()
   [[ -n "${OFDD_API_KEY:-}" ]] && curl_auth=(-H "Authorization: Bearer $OFDD_API_KEY")
-  local resp=""
-  if resp="$(curl -sf -X POST "$API_BASE/timeseries/purge" -H "Content-Type: application/json" "${curl_auth[@]}" -d '{}' 2>/dev/null)"; then
+  local resp_file http_code resp
+  resp_file="$(mktemp -t ofdd_purge_timeseries_XXXXXX)"
+  http_code="$(curl -sS -o "$resp_file" -w "%{http_code}" -X POST "$API_BASE/timeseries/purge" -H "Content-Type: application/json" "${curl_auth[@]}" -d '{}' 2>/dev/null || echo "000")"
+  resp="$(python3 - "$resp_file" <<'PY'
+import pathlib
+import sys
+p = pathlib.Path(sys.argv[1])
+try:
+    print(p.read_text(encoding='utf-8', errors='replace'))
+except Exception:
+    print("")
+PY
+)"
+  rm -f "$resp_file" 2>/dev/null || true
+  if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
     echo "  POST /timeseries/purge OK."
     if [[ -n "$resp" ]]; then
       local deleted
@@ -2130,7 +2173,8 @@ purge_timeseries_via_api() {
     fi
     echo "Timeseries purged; data model retained."
   else
-    echo "  POST /timeseries/purge failed."
+    echo "  POST /timeseries/purge failed (HTTP ${http_code})."
+    [[ -n "$resp" ]] && echo "  Response: $resp"
     return 1
   fi
   return 0
@@ -2379,6 +2423,7 @@ if $UPDATE_PULL_REBUILD; then
     run_verify_code_matrix_or_single || exit 1
     run_optional_diy_bacnet_tests || exit 1
   fi
+  validate_container_connectivity_hops
   if ! $VERIFY_ONLY && ! $RUN_TESTS_AFTER_UPDATE; then
     echo "  Verify: ./scripts/bootstrap.sh --verify"
   fi
@@ -2488,6 +2533,8 @@ if $PURGE_TIMESERIES; then
   echo ""
   purge_timeseries_via_api || true
 fi
+
+validate_container_connectivity_hops
 
 echo ""
 echo "=== Bootstrap complete ==="

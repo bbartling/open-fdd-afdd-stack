@@ -1,11 +1,13 @@
-"""Timeseries API — latest value per point for dashboards (HA, Grafana-style)."""
+"""Timeseries API — latest value per point and purge operations."""
 
 from datetime import timezone
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from openfdd_stack.platform.database import get_conn
+from openfdd_stack.platform.site_resolver import resolve_site_uuid
 
 
 def _ts_to_iso_utc(dt):
@@ -21,6 +23,13 @@ router = APIRouter(
     prefix="/timeseries",
     tags=["timeseries"],
 )
+
+
+class TimeseriesPurgeRequest(BaseModel):
+    site_id: Optional[str] = Field(
+        default=None,
+        description="Optional site UUID or name. Omit to purge all sites.",
+    )
 
 
 @router.get(
@@ -84,3 +93,42 @@ def get_timeseries_latest(
         }
         for r in rows
     ]
+
+
+@router.post(
+    "/purge",
+    summary="Purge timeseries rows (keep data model)",
+    description=(
+        "Delete rows from timeseries_readings while keeping sites/equipment/points/data model intact. "
+        "Use optional site_id to purge one site only."
+    ),
+)
+def purge_timeseries(
+    body: TimeseriesPurgeRequest = Body(default_factory=TimeseriesPurgeRequest),
+):
+    """Delete timeseries rows only; data model rows are unchanged."""
+    site_uuid: Optional[str] = None
+    if body.site_id and body.site_id.strip():
+        resolved = resolve_site_uuid(body.site_id.strip(), create_if_empty=False)
+        if resolved is None:
+            raise HTTPException(404, f"No site found for: {body.site_id!r}")
+        site_uuid = str(resolved)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if site_uuid:
+                cur.execute("DELETE FROM timeseries_readings WHERE site_id = %s", (site_uuid,))
+                scope = "site"
+            else:
+                cur.execute("DELETE FROM timeseries_readings")
+                scope = "all"
+            deleted_rows = int(cur.rowcount or 0)
+        conn.commit()
+
+    return {
+        "status": "ok",
+        "scope": scope,
+        "site_id": site_uuid,
+        "deleted_rows": deleted_rows,
+        "message": "Timeseries purged; data model retained.",
+    }

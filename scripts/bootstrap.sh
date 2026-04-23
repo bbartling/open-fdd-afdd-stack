@@ -21,7 +21,8 @@
 #   (Available services: api, bacnet-server, bacnet-scraper, caddy, db, fdd-loop, frontend, grafana [--with-grafana], host-stats, mosquitto [--with-mqtt-bridge], weather-scraper)
 #   ./scripts/bootstrap.sh --build mcp-rag     # rebuild and restart only mcp-rag service
 #   ./scripts/bootstrap.sh --frontend          # before start: stop frontend, remove frontend node_modules volume (fresh npm install on next up)
-#   ./scripts/bootstrap.sh --reset-data        # delete all sites via API + POST /data-model/reset (testing)
+#   ./scripts/bootstrap.sh --reset-data        # delete all sites via API + POST /data-model/reset (testing; clears data model + timeseries)
+#   ./scripts/bootstrap.sh --purge-timeseries  # delete only timeseries rows (keeps sites/equipment/points/data model)
 #
 #
 #
@@ -55,6 +56,7 @@ MODE="full"
 MODE_EXPLICIT=false
 RESET_GRAFANA=false
 RESET_DATA=false
+PURGE_TIMESERIES=false
 WITH_GRAFANA=false
 WITH_MQTT_BRIDGE=false
 WITH_MCP_RAG=false
@@ -139,6 +141,7 @@ while [[ $i -lt ${#args[@]} ]]; do
     --with-mqtt-bridge) WITH_MQTT_BRIDGE=true ;;
     --with-mcp-rag) WITH_MCP_RAG=true ;;
     --reset-data) RESET_DATA=true ;;
+    --purge-timeseries) PURGE_TIMESERIES=true ;;
     --build-all) BUILD_ALL=true ;;
     --update) UPDATE_PULL_REBUILD=true ;;
     --force-rebuild) UPDATE_FORCE_REBUILD=true ;;
@@ -241,7 +244,8 @@ Build controls:
 
 Data / ops:
   --reset-grafana           Wipe Grafana volume and restart Grafana (re-apply provisioning)
-  --reset-data              Delete all sites via API + POST /data-model/reset (testing)
+  --reset-data              Delete all sites via API + POST /data-model/reset (testing; clears model + timeseries)
+  --purge-timeseries        Delete timeseries only via API (/timeseries/purge). Keeps sites/equipment/points and data model.
 
 Edge settings:
   --retention-days N        TimescaleDB retention window (default 365)
@@ -294,6 +298,10 @@ if [[ "$MODE" != "full" && "$MODE" != "collector" && "$MODE" != "model" && "$MOD
 fi
 if $MINIMAL; then
   MODE="collector"
+fi
+if $RESET_DATA && $PURGE_TIMESERIES; then
+  echo "Both --reset-data and --purge-timeseries set; --reset-data already clears timeseries. Ignoring --purge-timeseries."
+  PURGE_TIMESERIES=false
 fi
 
 # --update --test: defer pytest to after pull/rebuild (otherwise the early --test handler exits before --update runs).
@@ -2032,7 +2040,7 @@ print(json.dumps({
     'rules_dir': os.environ.get('OFDD_RULES_DIR', 'stack/rules'),
     'brick_ttl_dir': os.environ.get('OFDD_BRICK_TTL_DIR', 'config'),
     'bacnet_enabled': env('OFDD_BACNET_SCRAPE_ENABLED', True),
-    'bacnet_scrape_interval_min': env('OFDD_BACNET_SCRAPE_INTERVAL_MIN', 1),
+    'bacnet_scrape_interval_min': env('OFDD_BACNET_SCRAPE_INTERVAL_MIN', 5),
     'bacnet_server_url': os.environ.get('OFDD_BACNET_SERVER_URL', 'http://localhost:8080'),
     'bacnet_site_id': os.environ.get('OFDD_BACNET_SITE_ID', 'default'),
     'open_meteo_enabled': env('OFDD_OPEN_METEO_ENABLED', True),
@@ -2044,7 +2052,7 @@ print(json.dumps({
     'open_meteo_site_id': om_site,
     'graph_sync_interval_min': env('OFDD_GRAPH_SYNC_INTERVAL_MIN', 5),
 }))
-" 2>/dev/null) || body="{\"rule_interval_hours\":0.1,\"lookback_days\":3,\"rules_dir\":\"stack/rules\",\"brick_ttl_dir\":\"config\",\"bacnet_enabled\":true,\"bacnet_scrape_interval_min\":1,\"bacnet_server_url\":\"http://localhost:8080\",\"bacnet_site_id\":\"default\",\"open_meteo_enabled\":true,\"open_meteo_interval_hours\":24,\"open_meteo_latitude\":41.88,\"open_meteo_longitude\":-87.63,\"open_meteo_timezone\":\"America/Chicago\",\"open_meteo_days_back\":3,\"open_meteo_site_id\":\"default\",\"graph_sync_interval_min\":5}"
+" 2>/dev/null) || body="{\"rule_interval_hours\":0.1,\"lookback_days\":3,\"rules_dir\":\"stack/rules\",\"brick_ttl_dir\":\"config\",\"bacnet_enabled\":true,\"bacnet_scrape_interval_min\":5,\"bacnet_server_url\":\"http://localhost:8080\",\"bacnet_site_id\":\"default\",\"open_meteo_enabled\":true,\"open_meteo_interval_hours\":24,\"open_meteo_latitude\":41.88,\"open_meteo_longitude\":-87.63,\"open_meteo_timezone\":\"America/Chicago\",\"open_meteo_days_back\":3,\"open_meteo_site_id\":\"default\",\"graph_sync_interval_min\":5}"
 
   if curl -sf -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" >/dev/null 2>&1; then
     echo "  PUT /config OK (config stored in RDF)."
@@ -2100,6 +2108,31 @@ reset_data_via_api() {
   fi
 
   echo "Data model and fault history are now reset for a clean test bench start."
+  echo "Note: this leaves no sites in DB. For upgrades where you want to keep the data model, use --purge-timeseries instead."
+  return 0
+}
+
+purge_timeseries_via_api() {
+  if ! wait_for_api; then
+    echo "Skip --purge-timeseries (API not reachable)."
+    return 1
+  fi
+
+  local curl_auth=()
+  [[ -n "${OFDD_API_KEY:-}" ]] && curl_auth=(-H "Authorization: Bearer $OFDD_API_KEY")
+  local resp=""
+  if resp="$(curl -sf -X POST "$API_BASE/timeseries/purge" -H "Content-Type: application/json" "${curl_auth[@]}" -d '{}' 2>/dev/null)"; then
+    echo "  POST /timeseries/purge OK."
+    if [[ -n "$resp" ]]; then
+      local deleted
+      deleted="$(echo "$resp" | sed -n 's/.*"deleted_rows":[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)"
+      [[ -n "$deleted" ]] && echo "  Deleted timeseries rows: $deleted"
+    fi
+    echo "Timeseries purged; data model retained."
+  else
+    echo "  POST /timeseries/purge failed."
+    return 1
+  fi
   return 0
 }
 
@@ -2336,6 +2369,10 @@ if $UPDATE_PULL_REBUILD; then
     echo ""
     verify
   fi
+  if $PURGE_TIMESERIES; then
+    echo ""
+    purge_timeseries_via_api || exit 1
+  fi
   if $RUN_TESTS_AFTER_UPDATE; then
     echo ""
     echo "=== Post-update tests (--test) ==="
@@ -2446,6 +2483,10 @@ fi
 if $RESET_DATA; then
   echo ""
   reset_data_via_api || true
+fi
+if $PURGE_TIMESERIES; then
+  echo ""
+  purge_timeseries_via_api || true
 fi
 
 echo ""

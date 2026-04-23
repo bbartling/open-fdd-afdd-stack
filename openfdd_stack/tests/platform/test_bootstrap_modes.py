@@ -40,6 +40,7 @@ def test_bootstrap_help_lists_mode_flag():
     assert "--bacnet-name" not in res.stdout
     assert "--allow-no-ui-auth" in res.stdout
     assert "--doctor" in res.stdout
+    assert "--purge-timeseries" in res.stdout
 
 
 def test_bootstrap_rejects_invalid_mode():

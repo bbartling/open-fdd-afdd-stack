@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useSites, useAllEquipment, useAllPoints, useEquipment, usePoints } from "@/hooks/use-sites";
 import { useActiveFaults, useFaultDefinitions, useSiteFaults } from "@/hooks/use-faults";
 import { useCapabilities } from "@/hooks/use-fdd-status";
+import { MCP_NOTE, OVERVIEW_QUICK_START, OVERVIEW_TAB_GUIDE } from "@/components/pages/overview-content";
 
 const DOCS_SITE = "https://bbartling.github.io/open-fdd";
 const DOCS_PDF_ONLINE =
@@ -23,6 +24,30 @@ function ModelContextCard() {
   return (
     <Card className="mt-6">
       <CardContent className="pt-6 space-y-3">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Where to do what</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use this as the first-stop guide for the sidebar tabs and common operator tasks.
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {OVERVIEW_TAB_GUIDE.map((row) => (
+              <li key={row.label}>
+                <span className="font-medium text-foreground">{row.label}:</span> {row.purpose}{" "}
+                <span className="text-muted-foreground/90">({row.whenToUse})</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="text-xs font-medium text-muted-foreground">Upgrade / restore workflow</h3>
+          <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground space-y-1">
+            {OVERVIEW_QUICK_START.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+
         <div>
           <h2 className="text-sm font-medium text-muted-foreground">
             External agents &amp; documentation
@@ -68,6 +93,7 @@ function ModelContextCard() {
             </li>
           </ul>
         </div>
+        <p className="text-xs text-muted-foreground">{MCP_NOTE}</p>
         {capabilities && (
           <p className="text-xs text-muted-foreground">
             API <span className="font-medium">v{capabilities.version}</span> — built-in{" "}

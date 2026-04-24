@@ -41,6 +41,7 @@ def test_bootstrap_help_lists_mode_flag():
     assert "--allow-no-ui-auth" in res.stdout
     assert "--doctor" in res.stdout
     assert "--purge-timeseries" in res.stdout
+    assert "--enforce-network-default" in res.stdout
 
 
 def test_bootstrap_rejects_invalid_mode():
@@ -74,4 +75,11 @@ def test_bootstrap_seeds_internal_bacnet_proxy_url_default():
     script_text = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
     assert "os.environ.get('OFDD_BACNET_SERVER_URL', 'http://caddy:8081')" in script_text
     assert "\\\"bacnet_server_url\\\":\\\"http://caddy:8081\\\"" in script_text
+
+
+def test_bootstrap_has_enforce_network_default_config_payload():
+    script_text = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
+    assert "enforce_network_default_config_via_api()" in script_text
+    assert '"bacnet_scrape_interval_min":5' in script_text
+    assert '"bacnet_server_url":"http://caddy:8081"' in script_text
 

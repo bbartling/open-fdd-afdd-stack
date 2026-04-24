@@ -348,7 +348,7 @@ If topology is not known confidently, omit feeds/fed_by rather than guessing. Yo
 
 ## Validate before import (so backend CRUD accepts it)
 
-The Open-FDD **PUT /data-model/import** endpoint expects a body that matches the **DataModelImportBody** Pydantic model: exactly `points` (array) and optional `equipment` (array). If the LLM returns extra keys, wrong types, or invalid UUIDs, the API returns **422 Unprocessable Entity**.
+The Open-FDD **PUT /data-model/import** endpoint expects a body that matches the **DataModelImportBody** Pydantic model: exactly `points` (array) and optional `equipment` (array). Both top-level and nested rows are strict (`extra="forbid"`), so unknown keys in `points[]`/`equipment[]` also return **422 Unprocessable Entity**.
 
 To avoid that:
 
@@ -366,6 +366,7 @@ To avoid that:
    then your LLM replaced the UUID with the human-readable site name. Reinforce: **never** replace `site_id` with `site_name`; if the export has no UUID, keep `site_id` null and keep `site_name`.
 
 4. **Pydantic in the repo** — The backend defines the import shape in **open_fdd/platform/api/data_model.py**: `DataModelImportBody`, `PointImportRow`, `EquipmentImportRow`. A script or pipeline can import those models and validate the LLM output (e.g. `DataModelImportBody.model_validate(json.loads(llm_output))`) before returning it to the human. That way the human only sees JSON that is known to parse on the backend.
+5. **Use the built-in validator script** — Run `python scripts/validate_data_model_import.py payload.json` before import. It prints failing paths like `equipment[0].unexpected_field` and exits non-zero on validation failure.
 
 ---
 

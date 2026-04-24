@@ -96,10 +96,18 @@ printf '%s' 'YourSecurePassword' | ./scripts/bootstrap.sh \
 
 ### Standard Maintenance
 
-Standard update procedures pull the latest versions of all applications, including the DIY BACnet Server, safely remove unused Docker container images, validate that the API and unit tests pass, and deploy the system with the MCP server running on the latest content.
+Standard update procedures should use `--update`, which pulls the latest versions of all applications (including sibling DIY BACnet Server when present), safely removes unused Docker images, rebuilds/restarts as needed, and verifies runtime health.
 
-Note that the username and password must be reconfigured, along with BACnet OT NIC settings and the BACnet instance ID for the Open FDD deployment at the specific site.
+Most patch updates do **not** require re-entering username/password or BACnet OT NIC settings. Re-pass those flags only when intentionally changing site credentials/network settings or provisioning a fresh host.
 
+Recommended recurring patch command:
+
+```bash
+cd open-fdd-afdd-stack
+./scripts/bootstrap.sh --maintenance --update --verify
+```
+
+Higher-assurance patch command (forces rebuild + tests):
 
 ```bash
 cd open-fdd-afdd-stack
@@ -120,7 +128,7 @@ printf '%s' 'YourSecurePassword' | ./scripts/bootstrap.sh \
 ```
 
 
-The `--enable-mcp` flag starts the internal MCP/RAG service on port `8090`.
+The `--with-mcp-rag` flag starts the internal MCP/RAG service on port `8090`.
 
 
 
@@ -198,7 +206,7 @@ This application is part of a broader ecosystem that together forms the **Open F
 
 * 📖 **Open FDD AFDD Stack**
   Full AFDD framework with Docker bootstrap, API services, drivers, and React web UI.
-  [Documentation](https://bbartling.github.io/open-fdd-afdd-stack/) · [GitHub](https://github.com/bbartling/open-fdd-afdd-stack)
+  [Documentation](https://bbartling.github.io/open-fdd-afdd-stack/) · [LLM Prompt Template](https://bbartling.github.io/open-fdd-afdd-stack/modeling/llm_workflow#copy-paste-prompt-template-recommended) · [GitHub](https://github.com/bbartling/open-fdd-afdd-stack)
 
 * 📘 **Open FDD Fault Detection Engine**
   Core rules engine with `RuleRunner`, YAML-based fault logic, and pandas workflows.

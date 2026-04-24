@@ -23,6 +23,7 @@
 #   ./scripts/bootstrap.sh --frontend          # before start: stop frontend, remove frontend node_modules volume (fresh npm install on next up)
 #   ./scripts/bootstrap.sh --reset-data        # delete all sites via API + POST /data-model/reset (testing; clears data model + timeseries)
 #   ./scripts/bootstrap.sh --purge-timeseries  # delete only timeseries rows (keeps sites/equipment/points/data model)
+#   ./scripts/bootstrap.sh --enforce-network-default  # reset graph config to canonical defaults (including BACnet URL via caddy and 5-min scrape)
 #
 #
 #
@@ -30,11 +31,13 @@
 #   ./scripts/bootstrap.sh --maintenance --update --verify
 #   --verify here is HTTP health only (BACnet server_hello, API /health), not pytest.
 #   ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests
+# Simplified recurring site patch update (keeps DB/model, fast path):
+#   ./scripts/bootstrap.sh --maintenance --update --verify
 #
 #
 # Heavy ops example (pull, rebuild, verify, tests, app user, frontend volume reset, self-signed Caddy):
 #   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --caddy-self-signed
-#   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag
+#   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag  --enforce-network-default
 #   Standard HTTP lab (OT NIC): ./scripts/bootstrap.sh --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456
 
 
@@ -57,6 +60,7 @@ MODE_EXPLICIT=false
 RESET_GRAFANA=false
 RESET_DATA=false
 PURGE_TIMESERIES=false
+ENFORCE_NETWORK_DEFAULT=false
 WITH_GRAFANA=false
 WITH_MQTT_BRIDGE=false
 WITH_MCP_RAG=false
@@ -142,6 +146,7 @@ while [[ $i -lt ${#args[@]} ]]; do
     --with-mcp-rag) WITH_MCP_RAG=true ;;
     --reset-data) RESET_DATA=true ;;
     --purge-timeseries) PURGE_TIMESERIES=true ;;
+    --enforce-network-default) ENFORCE_NETWORK_DEFAULT=true ;;
     --build-all) BUILD_ALL=true ;;
     --update) UPDATE_PULL_REBUILD=true ;;
     --force-rebuild) UPDATE_FORCE_REBUILD=true ;;
@@ -246,6 +251,7 @@ Data / ops:
   --reset-grafana           Wipe Grafana volume and restart Grafana (re-apply provisioning)
   --reset-data              Delete all sites via API + POST /data-model/reset (testing; clears model + timeseries)
   --purge-timeseries        Delete timeseries only via API (/timeseries/purge). Keeps sites/equipment/points and data model.
+  --enforce-network-default Force reset graph config to canonical defaults (rule_interval=3h, bacnet_scrape_interval_min=5, bacnet_server_url=http://caddy:8081, site IDs back to default, weather defaults, graph sync=5). Useful after upgrades to normalize old persisted config.
 
 Edge settings:
   --retention-days N        TimescaleDB retention window (default 365)
@@ -302,6 +308,9 @@ fi
 if $RESET_DATA && $PURGE_TIMESERIES; then
   echo "Both --reset-data and --purge-timeseries set; --reset-data already clears timeseries. Ignoring --purge-timeseries."
   PURGE_TIMESERIES=false
+fi
+if $ENFORCE_NETWORK_DEFAULT && [[ "$MODE" == "collector" || "$MODE" == "engine" ]]; then
+  echo "--enforce-network-default requested, but MODE=$MODE does not run API by default; enforcement will run only if API is reachable."
 fi
 
 # --update --test: defer pytest to after pull/rebuild (otherwise the early --test handler exits before --update runs).
@@ -2101,6 +2110,29 @@ print(json.dumps({
   return 0
 }
 
+enforce_network_default_config_via_api() {
+  if ! wait_for_api; then
+    echo "Skip --enforce-network-default (API not reachable)."
+    return 1
+  fi
+
+  echo "=== Enforcing canonical graph config defaults (PUT /config) ==="
+  local curl_auth=()
+  [[ -n "${OFDD_API_KEY:-}" ]] && curl_auth=(-H "Authorization: Bearer $OFDD_API_KEY")
+  API_BASE="$(bootstrap_api_base_for_host_curl)"
+
+  local body
+  body='{"rule_interval_hours":3.0,"lookback_days":3,"rules_dir":"stack/rules","brick_ttl_dir":"config","bacnet_enabled":true,"bacnet_scrape_interval_min":5,"bacnet_server_url":"http://caddy:8081","bacnet_site_id":"default","bacnet_gateways":"","open_meteo_enabled":true,"open_meteo_interval_hours":24,"open_meteo_latitude":41.88,"open_meteo_longitude":-87.63,"open_meteo_timezone":"America/Chicago","open_meteo_days_back":3,"open_meteo_site_id":"default","graph_sync_interval_min":5}'
+
+  if curl -sf -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" >/dev/null 2>&1; then
+    echo "  PUT /config OK (graph config reset to canonical defaults)."
+  else
+    echo "  PUT /config failed while enforcing defaults."
+    return 1
+  fi
+  return 0
+}
+
 reset_data_via_api() {
   if ! wait_for_api; then
     echo "Skip --reset-data (API not reachable)."
@@ -2414,6 +2446,10 @@ if $UPDATE_PULL_REBUILD; then
     run_verify_code_matrix_or_single || exit 1
     run_optional_diy_bacnet_tests || exit 1
   fi
+  if $ENFORCE_NETWORK_DEFAULT; then
+    echo ""
+    enforce_network_default_config_via_api || exit 1
+  fi
   validate_container_connectivity_hops
   if ! $VERIFY_ONLY && ! $RUN_TESTS_AFTER_UPDATE; then
     echo "  Verify: ./scripts/bootstrap.sh --verify"
@@ -2513,7 +2549,11 @@ apply_migrations_best_effort
 
 if [[ "$MODE" == "full" || "$MODE" == "model" ]]; then
   echo ""
-  seed_config_via_api || true
+  if $ENFORCE_NETWORK_DEFAULT; then
+    enforce_network_default_config_via_api || true
+  else
+    seed_config_via_api || true
+  fi
 fi
 
 if $RESET_DATA; then

@@ -1,6 +1,7 @@
 """Open-FDD CRUD API — data model, sites, points, equipment."""
 
 import importlib.metadata
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -38,6 +39,7 @@ from openfdd_stack.platform.api.schemas import CapabilityResponse, ErrorResponse
 from openfdd_stack.platform.realtime.ws import router as ws_router
 
 settings = get_platform_settings()
+logger = logging.getLogger(__name__)
 
 
 def _version_tuple(ver: str) -> tuple[int, ...]:
@@ -198,13 +200,59 @@ def _http_exception_handler(request: Request, exc: HTTPException):
 def _validation_exception_handler(request: Request, exc: RequestValidationError):
     """Return uniform error schema for 422 validation errors."""
     # exc.errors() may contain non-JSON-serializable values (e.g. bytes); coerce to safe types.
-    details = jsonable_encoder({"errors": exc.errors()})
+    errors = jsonable_encoder(exc.errors())
+    details = {"errors": errors}
+    message = "Request validation failed"
+
+    if request.url.path == "/data-model/import":
+        first = errors[0] if errors else {}
+        first_loc = first.get("loc") if isinstance(first, dict) else None
+        first_msg = (
+            str(first.get("msg") or "Validation error")
+            if isinstance(first, dict)
+            else "Validation error"
+        )
+
+        path_parts: list[str] = []
+        for segment in list(first_loc or []):
+            if segment in ("body",):
+                continue
+            if isinstance(segment, int):
+                if path_parts:
+                    path_parts[-1] = f"{path_parts[-1]}[{segment}]"
+                else:
+                    path_parts.append(f"[{segment}]")
+            else:
+                path_parts.append(str(segment))
+        path = ".".join(path_parts) if path_parts else "body"
+        message = f"Request validation failed at {path}: {first_msg}"
+
+        compact_errors: list[dict[str, str | list[str | int]]] = []
+        for err in errors:
+            if not isinstance(err, dict):
+                continue
+            compact_errors.append(
+                {
+                    "loc": err.get("loc", []),
+                    "msg": str(err.get("msg", "")),
+                    "type": str(err.get("type", "")),
+                }
+            )
+        logger.warning(
+            "Data-model import validation failed",
+            extra={
+                "http_method": request.method,
+                "path": request.url.path,
+                "validation_errors": compact_errors,
+            },
+        )
+
     return JSONResponse(
         status_code=422,
         content=ErrorResponse(
             error=ErrorDetail(
                 code="VALIDATION_ERROR",
-                message="Request validation failed",
+                message=message,
                 details=details,
             )
         ).model_dump(),

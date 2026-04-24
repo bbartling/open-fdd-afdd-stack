@@ -8,6 +8,18 @@ let refreshPromise: Promise<string | null> | null = null;
 /** Avoid dozens of parallel 403s each scheduling a full page navigation. */
 let loginRedirectScheduled = false;
 
+export class ApiError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(status: number, message: string, payload: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 function scheduleLoginRedirect(): void {
   if (typeof window === "undefined" || loginRedirectScheduled) return;
   const path = window.location.pathname;
@@ -99,6 +111,18 @@ async function readErrorMessage(response: Response): Promise<string> {
   return response.statusText || `HTTP ${response.status}`;
 }
 
+async function readErrorPayload(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+  try {
+    return await response.clone().json();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Default for API fetches. Refresh cookies need to be sent on same-origin requests (e.g. VITE_API_BASE=/api behind Caddy).
  * Starlette CORSMiddleware with allow_origins=["*"] and allow_credentials=True echoes the request Origin (it does not
@@ -120,8 +144,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   );
 
   if (!response.ok) {
+    const payload = await readErrorPayload(response);
     const message = await readErrorMessage(response);
-    throw new Error(`${response.status} ${message}`.trim());
+    throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
   if (response.status === 204) {
@@ -141,8 +166,9 @@ export async function apiFetchText(path: string, init?: RequestInit): Promise<st
   );
 
   if (!response.ok) {
+    const payload = await readErrorPayload(response);
     const message = await readErrorMessage(response);
-    throw new Error(`${response.status} ${message}`.trim());
+    throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
   return response.text();
@@ -165,8 +191,9 @@ export async function apiStreamText(
   );
 
   if (!response.ok) {
+    const payload = await readErrorPayload(response);
     const message = await readErrorMessage(response);
-    throw new Error(`${response.status} ${message}`.trim());
+    throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
   const reader = response.body?.getReader();
@@ -200,8 +227,9 @@ export async function apiFetchBlob(path: string, init?: RequestInit): Promise<Bl
   );
 
   if (!response.ok) {
+    const payload = await readErrorPayload(response);
     const message = await readErrorMessage(response);
-    throw new Error(`${response.status} ${message}`.trim());
+    throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
   return response.blob();

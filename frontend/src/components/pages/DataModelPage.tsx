@@ -9,7 +9,8 @@ import { useSiteContext } from "@/contexts/site-context";
 import { useAllEquipment, useAllPoints, useEquipment, usePoints, useSites } from "@/hooks/use-sites";
 import { useActiveFaults, useSiteFaults } from "@/hooks/use-faults";
 import { EquipmentTable } from "@/components/site/EquipmentTable";
-import { apiFetch, apiFetchText } from "@/lib/api";
+import { ApiError, apiFetch, apiFetchText } from "@/lib/api";
+import { firstImportValidationFailure } from "@/components/pages/data-model-import-error";
 import { writeTtlToPopup } from "@/lib/ttl-popup";
 import {
   deleteSite,
@@ -41,6 +42,7 @@ export function DataModelPage() {
   const [importJson, setImportJson] = useState("");
   const [importResult, setImportResult] = useState<DataModelImportResponse | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importErrorDetails, setImportErrorDetails] = useState<unknown>(null);
   const [checkResult, setCheckResult] = useState<DataModelCheckResponse | null>(null);
   const [resetConfirm, setResetConfirm] = useState("");
   const [deleteAllConfirm, setDeleteAllConfirm] = useState("");
@@ -80,6 +82,7 @@ export function DataModelPage() {
       }),
     onSuccess: (data) => {
       setImportError(null);
+      setImportErrorDetails(null);
       setImportResult(data);
       queryClient.invalidateQueries({ queryKey: ["data-model"] });
       queryClient.invalidateQueries({ queryKey: ["sites"] });
@@ -87,9 +90,18 @@ export function DataModelPage() {
     },
     onError: (err: Error) => {
       setImportError(err.message);
+      if (err instanceof ApiError) {
+        setImportErrorDetails(err.payload);
+      } else {
+        setImportErrorDetails(null);
+      }
       setImportResult(null);
     },
   });
+
+  const importFirstFailure = useMemo(() => {
+    return firstImportValidationFailure(importErrorDetails);
+  }, [importErrorDetails]);
 
   const serializeMutation = useMutation({
     mutationFn: dataModelSerialize,
@@ -123,13 +135,16 @@ export function DataModelPage() {
       const body: DataModelImportBody = Array.isArray(parsed) ? { points: parsed } : parsed;
       if (!body.points?.length) {
         setImportError(null);
+        setImportErrorDetails(null);
         setImportResult({ total: 0, warnings: ["No points in payload"] });
         return;
       }
       setImportError(null);
+      setImportErrorDetails(null);
       importMutation.mutate(body);
     } catch (e) {
       setImportError(e instanceof Error ? e.message : "Invalid JSON");
+      setImportErrorDetails(null);
       setImportResult(null);
     }
   };
@@ -385,6 +400,22 @@ export function DataModelPage() {
             {importError && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 <span className="font-medium">Import failed:</span> {importError}
+                {importFirstFailure && (
+                  <div className="mt-1 text-xs">
+                    First validation failure: <code>{importFirstFailure.path}</code> — {importFirstFailure.message}
+                  </div>
+                )}
+              </div>
+            )}
+            {importErrorDetails != null && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Validation details (copy for troubleshooting):</p>
+                <JsonPrettyPanel
+                  value={importErrorDetails}
+                  compact
+                  maxHeightClass="max-h-48"
+                  defaultExpandDepth={2}
+                />
               </div>
             )}
             <input

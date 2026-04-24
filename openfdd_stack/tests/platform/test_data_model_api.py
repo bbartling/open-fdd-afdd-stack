@@ -372,6 +372,61 @@ def test_data_model_import_rejects_unknown_top_level_keys():
     }
     r = client.put("/data-model/import", json=body)
     assert r.status_code == 422
+    payload = r.json()
+    msg = (payload.get("error") or {}).get("message", "")
+    assert "Request validation failed at sites" in msg
+    details = ((payload.get("error") or {}).get("details") or {}).get("errors") or []
+    assert any(err.get("loc") == ["body", "sites"] for err in details if isinstance(err, dict))
+
+
+def test_data_model_import_rejects_unknown_nested_point_fields():
+    body = {
+        "points": [
+            {
+                "point_id": str(uuid4()),
+                "brick_type": "Supply_Air_Temperature_Sensor",
+                "rule_input": "sat",
+                "bad_nested_key": "nope",
+            }
+        ]
+    }
+    r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    payload = r.json()
+    msg = (payload.get("error") or {}).get("message", "")
+    assert "points[0].bad_nested_key" in msg
+    details = ((payload.get("error") or {}).get("details") or {}).get("errors") or []
+    assert any(
+        err.get("loc") == ["body", "points", 0, "bad_nested_key"]
+        and err.get("type") == "extra_forbidden"
+        for err in details
+        if isinstance(err, dict)
+    )
+
+
+def test_data_model_import_rejects_unknown_nested_equipment_fields():
+    body = {
+        "points": [],
+        "equipment": [
+            {
+                "equipment_name": "AHU-1",
+                "site_id": str(uuid4()),
+                "unexpected_equipment_field": True,
+            }
+        ],
+    }
+    r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    payload = r.json()
+    msg = (payload.get("error") or {}).get("message", "")
+    assert "equipment[0].unexpected_equipment_field" in msg
+    details = ((payload.get("error") or {}).get("details") or {}).get("errors") or []
+    assert any(
+        err.get("loc") == ["body", "equipment", 0, "unexpected_equipment_field"]
+        and err.get("type") == "extra_forbidden"
+        for err in details
+        if isinstance(err, dict)
+    )
 
 
 def test_data_model_import_explicit_null_modbus_config_clears_column():

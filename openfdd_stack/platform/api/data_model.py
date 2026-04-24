@@ -441,8 +441,9 @@ class PointImportRow(BaseModel):
         "For decode float32, uint32, or int32, count must be >= 2.",
     )
 
-    model_config = {
-        "json_schema_extra": {
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
             "examples": [
                 {
                     "point_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -459,8 +460,8 @@ class PointImportRow(BaseModel):
                     "rule_input": "sat",
                 },
             ]
-        }
-    }
+        },
+    )
 
 
 class EquipmentImportRow(BaseModel):
@@ -506,6 +507,7 @@ class EquipmentImportRow(BaseModel):
         None,
         description="Optional engineering metadata merged into metadata.engineering.",
     )
+    model_config = ConfigDict(extra="forbid")
 
 
 class DataModelImportBody(BaseModel):

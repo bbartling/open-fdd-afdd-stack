@@ -144,7 +144,7 @@ Brick-semantic data model: **single export route** (BACnet discovery + DB points
 
 ### PUT /data-model/import
 
-Bulk create/update **points** and optionally update **equipment** feeds/fed_by. The API accepts **only** two top-level keys: **points** and **equipment** (no sites, equipments, or relationships). Used for Brick workflow: export → tag (brick_type, rule_input, polling, equipment relationships) → import. TTL is regenerated after import.
+Bulk create/update **points** and optionally update **equipment** feeds/fed_by. The API accepts **only** two top-level keys: **points** and **equipment** (no sites, equipments, or relationships). Unknown nested keys in `points[]` and `equipment[]` are also rejected (strict validation). Used for Brick workflow: export → tag (brick_type, rule_input, polling, equipment relationships) → import. TTL is regenerated after import.
 
 **Body:** `{"points": [...], "equipment": [...]}` (equipment optional).
 
@@ -157,6 +157,8 @@ Bulk create/update **points** and optionally update **equipment** feeds/fed_by. 
 | equipment (array) | optional | Each item: `equipment_id`, `feeds_equipment_id`, `fed_by_equipment_id` (Brick feeds/isFedBy; UUIDs from GET /equipment) |
 
 **Response:** `200 OK` — e.g. `{"created": N, "updated": M, "total": ...}`
+
+**Validation failures (`422`)**: Response keeps the standard error envelope. For `PUT /data-model/import`, `error.message` includes the first failing path and reason, and `error.details.errors` includes full validation entries (`loc`, `msg`, `type`).
 
 ---
 

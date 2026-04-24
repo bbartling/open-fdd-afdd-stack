@@ -84,21 +84,22 @@ function stringifyUnknown(value: unknown): string {
   return String(value);
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readErrorMessage(response: Response, payload?: unknown): Promise<string> {
   const contentType = response.headers.get("content-type") ?? "";
 
   try {
     if (contentType.includes("application/json")) {
-      const payload = (await response.json()) as {
+      const parsed = (payload ??
+        (await response.json())) as {
         detail?: unknown;
         error?: unknown;
         message?: unknown;
       };
-      const detailText = stringifyUnknown(payload.detail);
+      const detailText = stringifyUnknown(parsed.detail);
       if (detailText) return detailText;
-      const errorText = stringifyUnknown(payload.error);
+      const errorText = stringifyUnknown(parsed.error);
       if (errorText) return errorText;
-      const messageText = stringifyUnknown(payload.message);
+      const messageText = stringifyUnknown(parsed.message);
       if (messageText) return messageText;
     }
 
@@ -145,7 +146,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
   if (!response.ok) {
     const payload = await readErrorPayload(response);
-    const message = await readErrorMessage(response);
+    const message = await readErrorMessage(response, payload);
     throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
@@ -167,7 +168,7 @@ export async function apiFetchText(path: string, init?: RequestInit): Promise<st
 
   if (!response.ok) {
     const payload = await readErrorPayload(response);
-    const message = await readErrorMessage(response);
+    const message = await readErrorMessage(response, payload);
     throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
@@ -192,7 +193,7 @@ export async function apiStreamText(
 
   if (!response.ok) {
     const payload = await readErrorPayload(response);
-    const message = await readErrorMessage(response);
+    const message = await readErrorMessage(response, payload);
     throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 
@@ -228,7 +229,7 @@ export async function apiFetchBlob(path: string, init?: RequestInit): Promise<Bl
 
   if (!response.ok) {
     const payload = await readErrorPayload(response);
-    const message = await readErrorMessage(response);
+    const message = await readErrorMessage(response, payload);
     throw new ApiError(response.status, `${response.status} ${message}`.trim(), payload);
   }
 

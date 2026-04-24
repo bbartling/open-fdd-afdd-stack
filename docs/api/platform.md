@@ -158,7 +158,7 @@ Bulk create/update **points** and optionally update **equipment** feeds/fed_by. 
 
 **Response:** `200 OK` — e.g. `{"created": N, "updated": M, "total": ...}`
 
-**Validation failures (`422`)**: Response keeps the standard error envelope. For `PUT /data-model/import`, `error.message` includes the first failing path and reason, and `error.details.errors` includes full validation entries (`loc`, `msg`, `type`).
+**Validation failures (`422`)**: Response keeps the standard error envelope. For `PUT /data-model/import`, `error.message` includes the first failing path and reason, and `error.details.errors` includes full validation entries (at minimum `loc`, `msg`, `type`; additional Pydantic fields such as `url` may also be present).
 
 ---
 

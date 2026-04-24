@@ -33,4 +33,24 @@ describe("data-model import error helpers", () => {
       message: "Extra inputs are not permitted",
     });
   });
+
+  it("falls back to error type when msg is empty", () => {
+    const payload = {
+      error: {
+        details: {
+          errors: [
+            {
+              loc: ["body", "equipment", 1, "bogus_field"],
+              msg: "",
+              type: "extra_forbidden",
+            },
+          ],
+        },
+      },
+    };
+    expect(firstImportValidationFailure(payload)).toEqual({
+      path: "equipment[1].bogus_field",
+      message: "extra_forbidden",
+    });
+  });
 });

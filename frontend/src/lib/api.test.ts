@@ -14,7 +14,7 @@ describe("apiFetch errors", () => {
   });
 
   it("throws ApiError with raw JSON payload", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       new Response(
         JSON.stringify({
           error: {
@@ -38,18 +38,15 @@ describe("apiFetch errors", () => {
       ),
     );
 
-    try {
-      await apiFetch("/data-model/import", { method: "PUT" });
-      expect.unreachable("Expected apiFetch to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ApiError);
-      expect((err as ApiError).status).toBe(422);
-      expect((err as ApiError).message).toContain("422");
-      expect((err as ApiError).payload).toEqual(
-        expect.objectContaining({
-          error: expect.any(Object),
-        }),
-      );
-    }
+    await expect(apiFetch("/data-model/import", { method: "PUT" })).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    await expect(apiFetch("/data-model/import", { method: "PUT" })).rejects.toMatchObject({
+      status: 422,
+      message: expect.stringContaining("422"),
+      payload: expect.objectContaining({
+        error: expect.any(Object),
+      }),
+    });
   });
 });

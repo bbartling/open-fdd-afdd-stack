@@ -198,6 +198,8 @@ def ensure_weather_equipment(site_id: uuid.UUID, cur) -> uuid.UUID:
         """
         INSERT INTO equipment (site_id, name, equipment_type)
         VALUES (%s, %s, %s)
+        ON CONFLICT (site_id, name) DO UPDATE SET
+            equipment_type = EXCLUDED.equipment_type
         RETURNING id
         """,
         (site_id, WEATHER_EQUIPMENT_NAME, WEATHER_EQUIPMENT_TYPE),

@@ -48,19 +48,22 @@ def main() -> int:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(f"ERROR: invalid JSON at line {exc.lineno} column {exc.colno}: {exc.msg}")
+        print(
+            f"ERROR: invalid JSON at line {exc.lineno} column {exc.colno}: {exc.msg}",
+            file=sys.stderr,
+        )
         return 2
 
     try:
         parsed = DataModelImportBody.model_validate(payload)
     except ValidationError as exc:
         errors = exc.errors()
-        print(f"INVALID: {len(errors)} validation error(s)")
+        print(f"INVALID: {len(errors)} validation error(s)", file=sys.stderr)
         for idx, err in enumerate(errors, start=1):
             loc = _format_loc(err.get("loc", []))
             msg = err.get("msg", "Validation error")
             err_type = err.get("type", "unknown")
-            print(f"{idx}. {loc}: {msg} ({err_type})")
+            print(f"{idx}. {loc}: {msg} ({err_type})", file=sys.stderr)
         return 1
 
     point_count = len(parsed.points)

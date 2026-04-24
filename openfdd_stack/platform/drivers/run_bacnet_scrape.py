@@ -72,6 +72,33 @@ def _fetch_platform_config(log: logging.Logger) -> dict | None:
         return None
 
 
+def _fetch_platform_config_with_startup_retry(
+    log: logging.Logger, attempts: int = 5, base_delay_sec: float = 1.0
+) -> dict | None:
+    """Retry GET /config a few times to tolerate API startup races."""
+    last_result: dict | None = None
+    for attempt in range(1, attempts + 1):
+        last_result = _fetch_platform_config(log)
+        if last_result is not None:
+            if attempt > 1:
+                log.info("GET /config recovered on attempt %d/%d", attempt, attempts)
+            return last_result
+        if attempt < attempts:
+            sleep_sec = base_delay_sec * attempt
+            log.info(
+                "GET /config not ready yet (attempt %d/%d); retrying in %.1fs",
+                attempt,
+                attempts,
+                sleep_sec,
+            )
+            time.sleep(sleep_sec)
+    log.warning(
+        "GET /config unavailable after %d attempts; continuing with env/defaults.",
+        attempts,
+    )
+    return last_result
+
+
 _CONFIG_CACHE: _PlatformConfigCache = {"ts": 0.0, "cfg": None}
 
 
@@ -164,6 +191,9 @@ def main() -> int:
 
     setup_logging(args.verbose)
     log = logging.getLogger("open_fdd.bacnet")
+
+    # Best effort at startup: absorb brief API readiness races before falling back.
+    _fetch_platform_config_with_startup_retry(log)
 
     from openfdd_stack.platform.config import get_platform_settings
     from openfdd_stack.platform.drivers.bacnet import run_bacnet_scrape_data_model

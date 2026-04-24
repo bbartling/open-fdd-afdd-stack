@@ -252,6 +252,7 @@ Data / ops:
   --reset-data              Delete all sites via API + POST /data-model/reset (testing; clears model + timeseries)
   --purge-timeseries        Delete timeseries only via API (/timeseries/purge). Keeps sites/equipment/points and data model.
   --enforce-network-default Force reset graph config to canonical defaults (rule_interval=3h, bacnet_scrape_interval_min=5, bacnet_server_url=http://caddy:8081, site IDs back to default, weather defaults, graph sync=5). Useful after upgrades to normalize old persisted config.
+                           When set, this path is used instead of first-boot seed_config_via_api in full/model mode.
 
 Edge settings:
   --retention-days N        TimescaleDB retention window (default 365)
@@ -2121,13 +2122,18 @@ enforce_network_default_config_via_api() {
   [[ -n "${OFDD_API_KEY:-}" ]] && curl_auth=(-H "Authorization: Bearer $OFDD_API_KEY")
   API_BASE="$(bootstrap_api_base_for_host_curl)"
 
-  local body
+  local body resp_file http_code resp
+  # /config currently validates bacnet_gateways as optional string (JSON-encoded list), not array.
   body='{"rule_interval_hours":3.0,"lookback_days":3,"rules_dir":"stack/rules","brick_ttl_dir":"config","bacnet_enabled":true,"bacnet_scrape_interval_min":5,"bacnet_server_url":"http://caddy:8081","bacnet_site_id":"default","bacnet_gateways":"","open_meteo_enabled":true,"open_meteo_interval_hours":24,"open_meteo_latitude":41.88,"open_meteo_longitude":-87.63,"open_meteo_timezone":"America/Chicago","open_meteo_days_back":3,"open_meteo_site_id":"default","graph_sync_interval_min":5}'
-
-  if curl -sf -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" >/dev/null 2>&1; then
+  resp_file="$(mktemp -t ofdd_enforce_network_default_XXXXXX)"
+  http_code="$(curl -sS -o "$resp_file" -w "%{http_code}" -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" 2>/dev/null || echo "000")"
+  resp="$(cat "$resp_file" 2>/dev/null || true)"
+  rm -f "$resp_file" 2>/dev/null || true
+  if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
     echo "  PUT /config OK (graph config reset to canonical defaults)."
   else
-    echo "  PUT /config failed while enforcing defaults."
+    echo "  PUT /config failed while enforcing defaults (HTTP ${http_code})."
+    [[ -n "$resp" ]] && echo "  Response: $resp"
     return 1
   fi
   return 0
@@ -2448,7 +2454,7 @@ if $UPDATE_PULL_REBUILD; then
   fi
   if $ENFORCE_NETWORK_DEFAULT; then
     echo ""
-    enforce_network_default_config_via_api || exit 1
+    enforce_network_default_config_via_api || true
   fi
   validate_container_connectivity_hops
   if ! $VERIFY_ONLY && ! $RUN_TESTS_AFTER_UPDATE; then

@@ -1,12 +1,15 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 
 def _script_path() -> str:
-    from pathlib import Path
-
-    return str(Path(__file__).resolve().parents[3] / "scripts" / "validate_data_model_import.py")
+    cur = Path(__file__).resolve()
+    for parent in [cur, *cur.parents]:
+        if (parent / "pyproject.toml").exists():
+            return str(parent / "scripts" / "validate_data_model_import.py")
+    raise RuntimeError("Could not locate repository root for validate_data_model_import.py")
 
 
 def test_validate_data_model_import_script_accepts_valid_payload(tmp_path):
@@ -51,4 +54,5 @@ def test_validate_data_model_import_script_reports_validation_path(tmp_path):
         check=False,
     )
     assert proc.returncode == 1
-    assert "points[0].unknown_key" in proc.stdout
+    assert "points[0].unknown_key" in proc.stderr
+    assert "Extra inputs are not permitted" in proc.stderr

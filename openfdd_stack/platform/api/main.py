@@ -200,7 +200,16 @@ def _http_exception_handler(request: Request, exc: HTTPException):
 def _validation_exception_handler(request: Request, exc: RequestValidationError):
     """Return uniform error schema for 422 validation errors."""
     # exc.errors() may contain non-JSON-serializable values (e.g. bytes); coerce to safe types.
-    errors = jsonable_encoder(exc.errors())
+    raw_errors = jsonable_encoder(exc.errors())
+    errors: list[dict | str | int | float | bool | None] = []
+    for err in raw_errors:
+        if isinstance(err, dict):
+            sanitized = dict(err)
+            # Pydantic v2 can include "input" values that echo request payload content.
+            sanitized.pop("input", None)
+            errors.append(sanitized)
+        else:
+            errors.append(err)
     details = {"errors": errors}
     message = "Request validation failed"
 
@@ -215,7 +224,7 @@ def _validation_exception_handler(request: Request, exc: RequestValidationError)
 
         path_parts: list[str] = []
         for segment in list(first_loc or []):
-            if segment in ("body",):
+            if segment == "body":
                 continue
             if isinstance(segment, int):
                 if path_parts:

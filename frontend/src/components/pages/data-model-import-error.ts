@@ -1,6 +1,7 @@
 type ValidationErrorItem = {
   loc?: unknown;
   msg?: unknown;
+  type?: unknown;
 };
 
 export function formatValidationPath(loc: unknown): string {
@@ -38,6 +39,8 @@ export function firstImportValidationFailure(payload: unknown): { path: string; 
     message:
       typeof first?.msg === "string" && first.msg.trim()
         ? first.msg
-        : "Validation error",
+        : typeof first?.type === "string" && first.type.trim()
+          ? first.type
+          : "Validation error",
   };
 }

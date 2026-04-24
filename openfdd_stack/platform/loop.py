@@ -28,6 +28,67 @@ from openfdd_stack.platform.site_resolver import resolve_site_uuid
 from open_fdd.schema import FDDResult
 
 
+def _external_to_semantic_column_map(column_map: dict[str, str]) -> dict[str, str]:
+    """Invert semantic->external mapping to external->semantic for DataFrame columns."""
+    out: dict[str, str] = {}
+    for semantic, external in (column_map or {}).items():
+        sk = str(semantic or "").strip()
+        ev = str(external or "").strip()
+        if sk and ev and ev not in out:
+            out[ev] = sk
+    return out
+
+
+def _runner_column_map(column_map: dict[str, str]) -> dict[str, str]:
+    """
+    Build logical-input -> DataFrame-column mapping for RuleRunner.
+
+    The TTL resolver provides logical->external_id. After DataFrame columns are
+    renamed to semantic/logical names, remap values to those semantic columns.
+    """
+    external_to_semantic = _external_to_semantic_column_map(column_map)
+    out: dict[str, str] = {}
+    for logical_key, external_label in (column_map or {}).items():
+        lk = str(logical_key or "").strip()
+        ev = str(external_label or "").strip()
+        if not lk or not ev:
+            continue
+        out[lk] = external_to_semantic.get(ev, ev)
+    return out
+
+
+def _log_missing_rule_inputs_non_strict(
+    df: pd.DataFrame,
+    rules: list[dict],
+    *,
+    strict: bool,
+    scope: str,
+    column_map: dict[str, str],
+) -> None:
+    """In non-strict mode, emit diagnostics for rule inputs absent from resolved columns."""
+    if strict or df is None or df.empty:
+        return
+    from open_fdd.engine.runner import col_map_for_rule
+
+    cols = {str(c) for c in df.columns}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        inputs = rule.get("inputs")
+        if not isinstance(inputs, dict) or not inputs:
+            continue
+        resolved = col_map_for_rule(rule, column_map or {})
+        missing = [str(inp) for inp, col in resolved.items() if str(col) not in cols]
+        if missing:
+            _log.info(
+                "Non-strict mode: rule '%s' missing inputs after column resolution (%s): %s; available columns sample=%s",
+                rule.get("name") or rule.get("flag") or "unnamed",
+                scope,
+                ", ".join(sorted(missing)),
+                ", ".join(sorted(list(cols))[:12]),
+            )
+
+
 def _fdd_runner_run_kwargs(
     settings: object,
     *,
@@ -118,7 +179,8 @@ def load_timeseries_for_site(
     df = pd.DataFrame(rows)
     df = df.pivot_table(index="ts", columns="external_id", values="value")
     df = df.reset_index()
-    csv_cols = {ext: column_map.get(ext, ext) for ext in ext_ids}
+    external_to_semantic = _external_to_semantic_column_map(column_map)
+    csv_cols = {ext: external_to_semantic.get(ext, ext) for ext in ext_ids}
     df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
@@ -175,7 +237,8 @@ def load_timeseries_for_equipment(
     df = pd.DataFrame(rows)
     df = df.pivot_table(index="ts", columns="external_id", values="value")
     df = df.reset_index()
-    csv_cols = {ext: column_map.get(ext, ext) for ext in ext_ids}
+    external_to_semantic = _external_to_semantic_column_map(column_map)
+    csv_cols = {ext: external_to_semantic.get(ext, ext) for ext in ext_ids}
     df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
@@ -501,6 +564,7 @@ def run_fdd_loop(
         else BrickTtlColumnMapResolver()
     )
     column_map = resolver.build_column_map(ttl_path=ttl_path)
+    runner_col_map = _runner_column_map(column_map)
     equipment_types = (
         get_equipment_types_from_ttl(str(ttl_path)) if ttl_path.exists() else []
     )
@@ -557,10 +621,17 @@ def run_fdd_loop(
                 if df is None or len(df) < 6:
                     continue
                 ran_equipment = True
+                _log_missing_rule_inputs_non_strict(
+                    df,
+                    rules,
+                    strict=strict,
+                    scope=f"site={site_name} equipment={eq_name}",
+                    column_map=runner_col_map,
+                )
                 res = runner.run(
                     df,
                     **_fdd_runner_run_kwargs(
-                        settings, strict=strict, column_map=column_map
+                        settings, strict=strict, column_map=runner_col_map
                     ),
                 )
                 point_lookup = _point_lookup_for_equipment(sid, eq_name, column_map)
@@ -578,10 +649,17 @@ def run_fdd_loop(
                 df = load_timeseries_for_site(sid, start_ts, end_ts, column_map)
                 if df is not None and len(df) >= 6:
                     sites_processed += 1
+                    _log_missing_rule_inputs_non_strict(
+                        df,
+                        rules,
+                        strict=strict,
+                        scope=f"site={site_name}",
+                        column_map=runner_col_map,
+                    )
                     res = runner.run(
                         df,
                         **_fdd_runner_run_kwargs(
-                            settings, strict=strict, column_map=column_map
+                            settings, strict=strict, column_map=runner_col_map
                         ),
                     )
                     point_lookup = _point_lookup_for_site(sid, column_map)

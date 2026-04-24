@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+import re
 
 
 def test_bootstrap_doctor_runs_read_only_checks():
@@ -80,6 +81,7 @@ def test_bootstrap_seeds_internal_bacnet_proxy_url_default():
 def test_bootstrap_has_enforce_network_default_config_payload():
     script_text = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
     assert "enforce_network_default_config_via_api()" in script_text
-    assert '"bacnet_scrape_interval_min":5' in script_text
-    assert '"bacnet_server_url":"http://caddy:8081"' in script_text
+    assert re.search(r'"bacnet_scrape_interval_min"\s*:\s*5', script_text)
+    assert re.search(r'"bacnet_server_url"\s*:\s*"http://caddy:8081"', script_text)
+    assert re.search(r'"bacnet_gateways"\s*:\s*""', script_text)
 

@@ -6,10 +6,11 @@ from uuid import uuid4
 from openfdd_stack.platform.drivers import onboard
 
 
-def test_parse_building_ids_accepts_csv_and_json():
-    assert onboard.parse_building_ids("66,67") == [66, 67]
-    assert onboard.parse_building_ids("[66, 67]") == [66, 67]
-    assert onboard.parse_building_ids("") == []
+def test_parse_building_filters_accepts_ids_and_names():
+    assert onboard.parse_building_filters("66,67") == ["66", "67"]
+    assert onboard.parse_building_filters("[66, 67]") == ["66", "67"]
+    assert onboard.parse_building_filters('["Office Building"]') == ["Office Building"]
+    assert onboard.parse_building_filters("") == []
 
 
 def test_extract_rows_from_query_result_uses_converted_value():
@@ -35,7 +36,7 @@ def test_extract_rows_from_query_result_uses_converted_value():
 def test_window_chunks_splits_time_range():
     start = datetime(2021, 5, 1, 8, tzinfo=timezone.utc)
     end = datetime(2021, 5, 1, 18, tzinfo=timezone.utc)
-    chunks = onboard._window_chunks(start, end, step_hours=4)
+    chunks = onboard._window_chunks(start, end, step_minutes=240)
     assert len(chunks) == 3
     assert chunks[0] == (start, datetime(2021, 5, 1, 12, tzinfo=timezone.utc))
     assert chunks[-1] == (datetime(2021, 5, 1, 16, tzinfo=timezone.utc), end)
@@ -79,8 +80,8 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
             self.base_url = base_url
             self.api_key = api_key
 
-        def get_buildings(self, building_ids):
-            assert building_ids == [66]
+        def get_buildings(self, building_filters):
+            assert building_filters == ["Office Building"]
             return [building]
 
         def get_points(self, building_id):
@@ -112,7 +113,9 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
             (key, backfill_done, last_poll_end)
         ),
     )
-    monkeypatch.setattr(onboard, "_window_chunks", lambda _s, _e: [(now_start, now_end)])
+    monkeypatch.setattr(
+        onboard, "_window_chunks", lambda _s, _e, step_minutes=180: [(now_start, now_end)]
+    )
     monkeypatch.setattr(onboard, "_upsert_points_for_building", lambda *_args, **_kwargs: ({101: uuid4()}, 1))
     monkeypatch.setattr(
         onboard,
@@ -123,10 +126,9 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
         log=type("L", (), {"info": lambda *a, **k: None, "warning": lambda *a, **k: None})(),
         base_url="https://api.onboarddata.io",
         api_key="test-key",
-        building_ids=[66],
+        building_filters=["Office Building"],
         backfill_start=now_start,
-        backfill_end=now_end,
-        incremental_lookback_min=15,
+        scrape_interval_min=180,
         site_id_strategy="onboard-building-id",
         create_points=True,
     )

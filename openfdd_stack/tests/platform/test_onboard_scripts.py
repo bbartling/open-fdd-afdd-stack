@@ -14,7 +14,7 @@ def _repo_root() -> Path:
 def test_onboard_list_metadata_requires_api_key():
     script = _repo_root() / "scripts" / "onboard_list_metadata.py"
     proc = subprocess.run(
-        [sys.executable, str(script)],
+        [sys.executable, str(script), "--no-stack-env-fallback"],
         capture_output=True,
         text=True,
         check=False,
@@ -26,7 +26,7 @@ def test_onboard_list_metadata_requires_api_key():
 def test_onboard_backfill_smoke_requires_api_key():
     script = _repo_root() / "scripts" / "onboard_backfill_smoke.py"
     proc = subprocess.run(
-        [sys.executable, str(script)],
+        [sys.executable, str(script), "--no-stack-env-fallback"],
         capture_output=True,
         text=True,
         check=False,

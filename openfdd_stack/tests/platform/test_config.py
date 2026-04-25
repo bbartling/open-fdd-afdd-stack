@@ -108,7 +108,7 @@ def test_platform_settings_defaults():
     assert s.open_meteo_site_id == "default"
     assert s.onboard_enabled is False
     assert s.onboard_api_base_url == "https://api.onboarddata.io"
-    assert s.onboard_scrape_interval_min == 15
+    assert s.onboard_scrape_interval_min == 180
 
 
 def test_platform_settings_overlay(monkeypatch):

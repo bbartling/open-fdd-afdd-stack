@@ -61,7 +61,7 @@ class PlatformSettings(BaseSettings):
     # Driver intervals
     bacnet_scrape_interval_min: int = 5
     open_meteo_interval_hours: int = 24
-    onboard_scrape_interval_min: int = 15
+    onboard_scrape_interval_min: int = 180
 
     # Driver on/off (like Volttron agent enable/disable)
     bacnet_scrape_enabled: bool = True

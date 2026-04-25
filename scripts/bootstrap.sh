@@ -2147,7 +2147,7 @@ print(json.dumps({
     'onboard_enabled': env('OFDD_ONBOARD_ENABLED', False),
     'onboard_api_base_url': os.environ.get('OFDD_ONBOARD_API_BASE_URL', 'https://api.onboarddata.io'),
     'onboard_building_ids': os.environ.get('OFDD_ONBOARD_BUILDING_IDS', ''),
-    'onboard_scrape_interval_min': env('OFDD_ONBOARD_SCRAPE_INTERVAL_MIN', 15),
+    'onboard_scrape_interval_min': env('OFDD_ONBOARD_SCRAPE_INTERVAL_MIN', 180),
     'onboard_backfill_start': os.environ.get('OFDD_ONBOARD_BACKFILL_START') or None,
     'onboard_backfill_end': os.environ.get('OFDD_ONBOARD_BACKFILL_END') or None,
     'onboard_site_id_strategy': os.environ.get('OFDD_ONBOARD_SITE_ID_STRATEGY', 'onboard-building-id'),
@@ -2226,14 +2226,14 @@ print(json.dumps({
   'onboard_enabled': False,
   'onboard_api_base_url': 'https://api.onboarddata.io',
   'onboard_building_ids': '',
-  'onboard_scrape_interval_min': 15,
+  'onboard_scrape_interval_min': 180,
   'onboard_backfill_start': None,
   'onboard_backfill_end': None,
   'onboard_site_id_strategy': 'onboard-building-id',
   'onboard_create_points': True,
   'graph_sync_interval_min': 5,
 }))
-" 2>/dev/null)" || body='{"rule_interval_hours":3.0,"lookback_days":3,"rules_dir":"stack/rules","brick_ttl_dir":"config","bacnet_enabled":true,"bacnet_scrape_interval_min":5,"bacnet_server_url":"http://caddy:8081","bacnet_site_id":"default","bacnet_gateways":"","open_meteo_enabled":true,"open_meteo_interval_hours":24,"open_meteo_latitude":41.88,"open_meteo_longitude":-87.63,"open_meteo_timezone":"America/Chicago","open_meteo_days_back":3,"open_meteo_site_id":"default","onboard_enabled":false,"onboard_api_base_url":"https://api.onboarddata.io","onboard_building_ids":"","onboard_scrape_interval_min":15,"onboard_backfill_start":null,"onboard_backfill_end":null,"onboard_site_id_strategy":"onboard-building-id","onboard_create_points":true,"graph_sync_interval_min":5}'
+" 2>/dev/null)" || body='{"rule_interval_hours":3.0,"lookback_days":3,"rules_dir":"stack/rules","brick_ttl_dir":"config","bacnet_enabled":true,"bacnet_scrape_interval_min":5,"bacnet_server_url":"http://caddy:8081","bacnet_site_id":"default","bacnet_gateways":"","open_meteo_enabled":true,"open_meteo_interval_hours":24,"open_meteo_latitude":41.88,"open_meteo_longitude":-87.63,"open_meteo_timezone":"America/Chicago","open_meteo_days_back":3,"open_meteo_site_id":"default","onboard_enabled":false,"onboard_api_base_url":"https://api.onboarddata.io","onboard_building_ids":"","onboard_scrape_interval_min":180,"onboard_backfill_start":null,"onboard_backfill_end":null,"onboard_site_id_strategy":"onboard-building-id","onboard_create_points":true,"graph_sync_interval_min":5}'
   resp_file="$(mktemp -t ofdd_enforce_network_default_XXXXXX)"
   http_code="$(curl -sS -o "$resp_file" -w "%{http_code}" -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" 2>/dev/null || echo "000")"
   resp="$(cat "$resp_file" 2>/dev/null || true)"

@@ -7,12 +7,25 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 from openfdd_stack.platform.drivers.onboard import (
-    parse_building_ids,
+    parse_building_filters,
     parse_iso_ts,
     run_onboard_ingest_once,
 )
+
+
+def _fallback_api_key_from_stack_env() -> str:
+    env_path = Path(__file__).resolve().parents[1] / "stack" / ".env"
+    if not env_path.exists():
+        return ""
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.startswith("OFDD_ONBOARD_API_KEY="):
+            continue
+        val = raw_line.split("=", 1)[1].strip().strip("'").strip('"')
+        return val
+    return ""
 
 
 def main() -> int:
@@ -26,6 +39,12 @@ def main() -> int:
         "--building-ids",
         default=os.getenv("OFDD_ONBOARD_BUILDING_IDS", ""),
         help="CSV or JSON array (ex: 66,67 or [66,67])",
+    )
+    parser.add_argument(
+        "--building",
+        action="append",
+        default=[],
+        help='Building name filter (repeatable), e.g. --building "Office Building"',
     )
     parser.add_argument(
         "--backfill-start",
@@ -52,9 +71,16 @@ def main() -> int:
         action="store_true",
         default=os.getenv("OFDD_ONBOARD_CREATE_POINTS", "true").lower() == "true",
     )
+    parser.add_argument(
+        "--no-stack-env-fallback",
+        action="store_true",
+        help="Do not read OFDD_ONBOARD_API_KEY from stack/.env when --api-key is empty",
+    )
     args = parser.parse_args()
 
     api_key = (args.api_key or "").strip()
+    if not api_key and not args.no_stack_env_fallback:
+        api_key = _fallback_api_key_from_stack_env()
     if not api_key:
         print("Missing API key. Set --api-key or OFDD_ONBOARD_API_KEY.", file=sys.stderr)
         return 1
@@ -66,15 +92,15 @@ def main() -> int:
     )
     log = logging.getLogger("onboard_backfill_smoke")
 
-    building_ids = parse_building_ids(args.building_ids)
+    building_filters = parse_building_filters(args.building_ids)
+    building_filters.extend([b for b in args.building if str(b).strip()])
     summary = run_onboard_ingest_once(
         log,
         base_url=args.api_base_url,
         api_key=api_key,
-        building_ids=building_ids,
+        building_filters=building_filters,
         backfill_start=parse_iso_ts(args.backfill_start),
-        backfill_end=parse_iso_ts(args.backfill_end),
-        incremental_lookback_min=max(1, int(args.interval_min)),
+        scrape_interval_min=max(1, int(args.interval_min)),
         site_id_strategy=args.site_id_strategy,
         create_points=bool(args.create_points),
     )

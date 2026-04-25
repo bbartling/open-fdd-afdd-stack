@@ -31,8 +31,8 @@ def parse_iso_ts(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def parse_building_ids(raw: str | None) -> list[int]:
-    """Parse csv/json building id list from config."""
+def parse_building_filters(raw: str | None) -> list[str]:
+    """Parse csv/json building selectors (IDs and/or names)."""
     if raw is None:
         return []
     text = str(raw).strip()
@@ -42,8 +42,8 @@ def parse_building_ids(raw: str | None) -> list[int]:
         data = json.loads(text)
         if not isinstance(data, list):
             raise ValueError("onboard_building_ids JSON must be an array")
-        return [int(v) for v in data]
-    return [int(v.strip()) for v in text.split(",") if v.strip()]
+        return [str(v).strip() for v in data if str(v).strip()]
+    return [v.strip() for v in text.split(",") if v.strip()]
 
 
 def _as_float(value: Any) -> float | None:
@@ -92,14 +92,35 @@ class OnboardClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_buildings(self, building_ids: list[int]) -> list[dict[str, Any]]:
-        if building_ids:
-            out: list[dict[str, Any]] = []
-            for bldg_id in building_ids:
-                out.append(self._get(f"/buildings/{int(bldg_id)}"))
-            return out
+    def get_buildings(self, building_filters: list[str]) -> list[dict[str, Any]]:
         data = self._get("/buildings")
-        return data if isinstance(data, list) else []
+        buildings = data if isinstance(data, list) else []
+        if not building_filters:
+            return buildings
+
+        by_id = {str(b.get("id")): b for b in buildings if b.get("id") is not None}
+        by_name_ci = {
+            str(b.get("name")).strip().casefold(): b
+            for b in buildings
+            if str(b.get("name") or "").strip()
+        }
+        out: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for token in building_filters:
+            key = str(token).strip()
+            if not key:
+                continue
+            match = by_id.get(key)
+            if match is None:
+                match = by_name_ci.get(key.casefold())
+            if match is None:
+                continue
+            bldg_id = int(match["id"])
+            if bldg_id in seen:
+                continue
+            seen.add(bldg_id)
+            out.append(match)
+        return out
 
     def get_points(self, building_id: int) -> list[dict[str, Any]]:
         data = self._get(f"/buildings/{int(building_id)}/points")
@@ -271,12 +292,14 @@ def _extract_rows_from_query_result(
     return out
 
 
-def _window_chunks(start: datetime, end: datetime, step_hours: int = 6) -> list[tuple[datetime, datetime]]:
+def _window_chunks(
+    start: datetime, end: datetime, step_minutes: int = 180
+) -> list[tuple[datetime, datetime]]:
     if start >= end:
         return []
     chunks: list[tuple[datetime, datetime]] = []
     cur = start
-    step = timedelta(hours=step_hours)
+    step = timedelta(minutes=max(1, step_minutes))
     while cur < end:
         nxt = min(cur + step, end)
         chunks.append((cur, nxt))
@@ -289,10 +312,9 @@ def run_onboard_ingest_once(
     *,
     base_url: str,
     api_key: str,
-    building_ids: list[int],
+    building_filters: list[str],
     backfill_start: datetime | None,
-    backfill_end: datetime | None,
-    incremental_lookback_min: int,
+    scrape_interval_min: int,
     site_id_strategy: str,
     create_points: bool,
     default_site_id: str = "default",
@@ -300,7 +322,7 @@ def run_onboard_ingest_once(
     """Run one ingestion cycle across selected Onboard buildings."""
     client = OnboardClient(base_url=base_url, api_key=api_key)
     summary = {"rows_inserted": 0, "points_seen": 0, "points_upserted": 0, "buildings": 0}
-    buildings = client.get_buildings(building_ids)
+    buildings = client.get_buildings(building_filters)
     summary["buildings"] = len(buildings)
     now_utc = datetime.now(timezone.utc)
 
@@ -331,30 +353,31 @@ def run_onboard_ingest_once(
                 batches = [list(point_map.keys())[i : i + 200] for i in range(0, len(point_map), 200)]
                 total_rows_this_building = 0
 
-                if backfill_start and backfill_end and not bool(state.get("backfill_done")):
-                    for win_start, win_end in _window_chunks(backfill_start, backfill_end):
+                last_poll_end = state.get("last_poll_end")
+                window_min = max(1, int(scrape_interval_min))
+                if backfill_start is not None:
+                    if isinstance(last_poll_end, datetime):
+                        inc_start = max(last_poll_end, backfill_start)
+                    else:
+                        inc_start = backfill_start
+                else:
+                    if isinstance(last_poll_end, datetime):
+                        inc_start = last_poll_end
+                    else:
+                        inc_start = now_utc - timedelta(minutes=window_min)
+                inc_end = now_utc
+                if inc_start < inc_end:
+                    for win_start, win_end in _window_chunks(
+                        inc_start, inc_end, step_minutes=window_min
+                    ):
                         for batch in batches:
                             q = client.query_v2(win_start, win_end, batch)
                             rows = _extract_rows_from_query_result(point_map, site_uuid, q)
                             total_rows_this_building += _insert_timeseries_rows(cur, rows)
-                    state["backfill_done"] = True
-                    state["last_poll_end"] = backfill_end
-
-                last_poll_end = state.get("last_poll_end")
-                if isinstance(last_poll_end, datetime):
-                    inc_start = last_poll_end
-                else:
-                    inc_start = now_utc - timedelta(minutes=incremental_lookback_min)
-                inc_end = now_utc
-                if inc_start < inc_end:
-                    for batch in batches:
-                        q = client.query_v2(inc_start, inc_end, batch)
-                        rows = _extract_rows_from_query_result(point_map, site_uuid, q)
-                        total_rows_this_building += _insert_timeseries_rows(cur, rows)
                 _save_state(
                     cur,
                     state_key,
-                    bool(state.get("backfill_done")),
+                    backfill_start is not None,
                     inc_end,
                 )
                 summary["rows_inserted"] += total_rows_this_building

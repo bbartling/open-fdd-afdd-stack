@@ -41,6 +41,7 @@ This workflow is intended for **mechanical engineers and building operators** wh
 - **points** (required): Each row is a point to **create** (omit `point_id`; set `site_id`, `external_id`, `bacnet_device_id`, `object_identifier`) or **update** (set `point_id` and fields to change). `site_id` should remain the export UUID when present. `equipment_id` is optional if `equipment_name` is provided with `site_id`.
 - **equipment** (optional): Updates equipment with Brick feeds/isFedBy, **`equipment_type`** (Brick class for `rdf:type`), **`engineering`**, **`metadata`**. Rows may use UUID fields (`equipment_id`, `feeds_equipment_id`, `fed_by_equipment_id`) or name fields (`equipment_name`, `feeds`, `fed_by`) with `site_id` for resolution.
 - **No other top-level keys:** The API model uses **`extra="forbid"`** — unknown keys such as `sites` or `relationships` produce **422 Unprocessable Entity** (they are not silently ignored).
+- **Nested rows are strict too:** Unknown keys inside `points[]` and `equipment[]` are also rejected (`extra="forbid"` on nested row models). Keep each row to documented fields only.
 
 **diy-bacnet ready:** The list of points to poll is **GET /data-model/export** filtered to rows where **polling === true**; each has `bacnet_device_id` and `object_identifier`.
 
@@ -124,6 +125,15 @@ So the agent uses **retry** with **prompt chaining**: keep the same export/rules
 ## Troubleshooting import failures (fixing your tagged JSON)
 
 Sometimes the LLM returns valid JSON that passes schema validation, but `PUT /data-model/import` still rejects it during referential checks.
+
+### 422 validation payloads are now path-specific
+
+When import payload shape is invalid (unknown keys, wrong types, etc.), the API returns:
+- `error.message` with first failing path + reason (example: `Request validation failed at points[0].equipment_type: Extra inputs are not permitted`)
+- `error.details.errors[]` with full FastAPI/Pydantic entries (`loc`, `msg`, `type`)
+
+For local/offline checks before calling the API, run:
+- `python scripts/validate_data_model_import.py path/to/payload.json`
 
 ### `site_id` must be a UUID
 

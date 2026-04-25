@@ -131,6 +131,75 @@ def test_data_model_export_returns_point_refs():
     assert data[0]["rule_input"] == "sat"
 
 
+def test_data_model_export_import_template_is_import_safe_shape():
+    site_id = uuid4()
+    point_id = uuid4()
+    rows = [
+        {
+            "id": point_id,
+            "site_id": site_id,
+            "site_name": "Default",
+            "external_id": "ZoneTemp",
+            "equipment_id": None,
+            "equipment_name": "VAV-1",
+            "equipment_metadata": {"engineering": {"rated_airflow_cfm": 1200}},
+            "brick_type": "Zone_Air_Temperature_Sensor",
+            "fdd_input": "zt",
+            "unit": "degF",
+            "bacnet_device_id": "3456789",
+            "object_identifier": "analog-input,1",
+            "object_name": "ZoneTemp",
+            "polling": True,
+            "modbus_config": None,
+        }
+    ]
+    with (
+        patch(
+            "openfdd_stack.platform.api.data_model.serialize_to_ttl",
+            return_value="@prefix brick: <https://brickschema.org/schema/Brick#> .\n",
+        ),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn",
+            side_effect=_mock_get_conn_sequence([], rows),
+        ),
+    ):
+        r = client.get("/data-model/export/import-template")
+    assert r.status_code == 200
+    body = r.json()
+    assert "points" in body
+    assert "template_hints" in body
+    assert body["equipment"] == []
+    row = body["points"][0]
+    assert row["point_id"] == str(point_id)
+    assert row["external_id"] == "ZoneTemp"
+    assert row["rule_input"] == "zt"
+    assert "engineering" not in row
+    assert "equipment_metadata" not in row
+
+
+def test_data_model_export_import_template_returns_scaffold_when_empty():
+    with (
+        patch(
+            "openfdd_stack.platform.api.data_model.serialize_to_ttl",
+            return_value="@prefix brick: <https://brickschema.org/schema/Brick#> .\n",
+        ),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn",
+            side_effect=_mock_get_conn_sequence([], []),
+        ),
+    ):
+        r = client.get("/data-model/export/import-template")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body.get("points"), list)
+    assert len(body["points"]) == 1
+    assert body["points"][0]["point_id"] is None
+    assert body["points"][0]["site_id"] == "<site-uuid>"
+    hints = body.get("template_hints", {})
+    assert "required_create_fields" in hints
+    assert "minimal_example" in hints
+
+
 def test_data_model_export_includes_bacnet_refs():
     """Export includes bacnet_device_id, object_identifier, object_name for LLM/AI tagging workflow."""
     site_id = uuid4()
@@ -372,6 +441,61 @@ def test_data_model_import_rejects_unknown_top_level_keys():
     }
     r = client.put("/data-model/import", json=body)
     assert r.status_code == 422
+    payload = r.json()
+    msg = (payload.get("error") or {}).get("message", "")
+    assert "Request validation failed at sites" in msg
+    details = ((payload.get("error") or {}).get("details") or {}).get("errors") or []
+    assert any(err.get("loc") == ["body", "sites"] for err in details if isinstance(err, dict))
+
+
+def test_data_model_import_rejects_unknown_nested_point_fields():
+    body = {
+        "points": [
+            {
+                "point_id": str(uuid4()),
+                "brick_type": "Supply_Air_Temperature_Sensor",
+                "rule_input": "sat",
+                "bad_nested_key": "nope",
+            }
+        ]
+    }
+    r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    payload = r.json()
+    msg = (payload.get("error") or {}).get("message", "")
+    assert "points[0].bad_nested_key" in msg
+    details = ((payload.get("error") or {}).get("details") or {}).get("errors") or []
+    assert any(
+        err.get("loc") == ["body", "points", 0, "bad_nested_key"]
+        and err.get("type") == "extra_forbidden"
+        for err in details
+        if isinstance(err, dict)
+    )
+
+
+def test_data_model_import_rejects_unknown_nested_equipment_fields():
+    body = {
+        "points": [],
+        "equipment": [
+            {
+                "equipment_name": "AHU-1",
+                "site_id": str(uuid4()),
+                "unexpected_equipment_field": True,
+            }
+        ],
+    }
+    r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    payload = r.json()
+    msg = (payload.get("error") or {}).get("message", "")
+    assert "equipment[0].unexpected_equipment_field" in msg
+    details = ((payload.get("error") or {}).get("details") or {}).get("errors") or []
+    assert any(
+        err.get("loc") == ["body", "equipment", 0, "unexpected_equipment_field"]
+        and err.get("type") == "extra_forbidden"
+        for err in details
+        if isinstance(err, dict)
+    )
 
 
 def test_data_model_import_explicit_null_modbus_config_clears_column():
@@ -612,6 +736,55 @@ def test_data_model_import_missing_site_returns_400():
     detail = (r.json().get("error") or {}).get("message", "") or str(r.json())
     assert "Missing site" in detail
     assert "add the site" in detail.lower() or "try again" in detail.lower()
+
+
+def test_data_model_import_missing_create_fields_fails_hard_422():
+    existing_site_id = uuid4()
+    body = {
+        "points": [
+            {
+                "site_id": str(existing_site_id),
+                "external_id": "SA-T",
+                # missing bacnet_device_id + object_identifier for create
+            }
+        ]
+    }
+    with patch(
+        "openfdd_stack.platform.api.data_model.get_conn",
+        side_effect=lambda: _mock_conn_with_cursor([{"id": existing_site_id}]),
+    ):
+        r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    detail = (r.json().get("error") or {}).get("message", "") or str(r.json())
+    assert "Invalid create payload" in detail
+
+
+def test_data_model_import_allows_template_hints_passthrough():
+    point_id = uuid4()
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    cursor.execute.return_value = None
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
+    body = {
+        "points": [{"point_id": str(point_id), "brick_type": "Zone_Air_Temperature_Sensor"}],
+        "equipment": [],
+        "template_hints": {
+            "required_create_fields": ["site_id", "external_id", "bacnet_device_id", "object_identifier"]
+        },
+    }
+    with (
+        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
+    ):
+        r = client.put("/data-model/import", json=body)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["updated"] == 1
+    assert out["total"] == 1
 
 
 def test_data_model_import_infers_payload_site_for_null_rows():
@@ -932,3 +1105,43 @@ def test_data_model_reset_with_clear_fault_history_deletes_fault_tables():
     assert any("DELETE FROM fault_results" in sql for sql in execute_calls)
     assert any("DELETE FROM fault_state" in sql for sql in execute_calls)
     conn.commit.assert_called_once()
+
+
+def test_data_model_reset_with_clear_model_db_deletes_sites_before_graph_reset():
+    execute_calls: list[str] = []
+    rowcounts = iter([7, 2])  # DELETE sites, then fault_state deactivation
+    cursor = MagicMock()
+
+    def _capture_execute(sql, params=None):
+        execute_calls.append(sql)
+        cursor.rowcount = next(rowcounts)
+
+    cursor.execute = MagicMock(side_effect=_capture_execute)
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
+    conn.commit = MagicMock()
+
+    with (
+        patch("openfdd_stack.platform.api.data_model.reset_graph_to_db_only"),
+        patch("openfdd_stack.platform.api.data_model.get_conn", return_value=conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.write_ttl_to_file",
+            return_value=(True, None),
+        ),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_serialization_status",
+            return_value={"graph_serialization": {"ok": True}},
+        ),
+    ):
+        r = client.post("/data-model/reset?clear_model_db=true")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["cleanup"]["sites_deleted"] == 7
+    assert body["cleanup"]["fault_state_deactivated"] == 2
+    assert "destructive model wipe" in body["message"]
+    assert any("DELETE FROM sites" in sql for sql in execute_calls)

@@ -8,6 +8,51 @@ nav_order: 7
 
 This is the evolving engineering plan for Open-FDD automated testing and the optional **OpenClaw lab** bench under [`openclaw/README.md`](https://github.com/bbartling/open-fdd-afdd-stack/tree/main/openclaw/README.md).
 
+## OpenClaw continuation prompt (sibling-container bench)
+
+Use this when OpenClaw is running as a sibling Docker container and you want it to continue after network wiring fixes:
+
+```text
+Continue the focused regression + soak on the current Open-FDD bench run.
+
+Runtime + Access
+- You are running as a sibling Docker container on the same host as Open-FDD.
+- Do not use local filesystem paths like /home/ben/... .
+- Primary base URL: http://openfdd_api:8000
+- Fallback base URL: http://host.docker.internal:8000
+- Health endpoint: GET /health
+- Auth: X-API-Key: <ROTATED_API_KEY>
+
+Preflight (must pass before phase work)
+1) GET /health
+2) GET /config
+3) GET /model-context/docs?query=openclaw+sibling+docker+openfdd_api+host.docker.internal&mode=excerpt&max_chars=28000
+4) GET /mcp/manifest
+
+Phases to execute
+- Phase 1: Preconditions and config capture
+- Phase 1.5: Validate MCP/doc context includes sibling-container networking guidance
+- Phase 2: Discovery + baseline model export
+- Phase 3: Deterministic fault emission gate
+- Phase 4: AI-assisted import validation (valid + invalid nested key + relationship edits)
+- Phase 5: YAML rule lifecycle add/remove
+- Phase 6: Overnight soak (scrape + FDD loops, stability tracking)
+
+Pass criteria
+- openfdd_api reachability remains stable
+- deterministic expected fault emits with clear equipment attribution
+- strict 422 validation behavior is correct on invalid import variant
+- MCP/docs reflect internal networking guidance for sibling-container mode
+- no critical runtime instability during soak
+
+Deliverables
+- one-page summary
+- phase-by-phase pass/fail with evidence
+- blocker list with repro steps
+- prioritized patch recommendations
+- artifact index (model exports, import payloads/responses, SPARQL results, logs, MCP/docs validation outputs)
+```
+
 ## Near-term priorities
 
 ### 0. Continuous PR and CI review

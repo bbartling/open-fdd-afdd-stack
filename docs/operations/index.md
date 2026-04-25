@@ -20,4 +20,5 @@ Operational playbooks for recurring Open-FDD verification, OpenClaw context dura
 | [Testing plan](testing_plan) | Engineering plan for bench testing, auth/SPARQL checks, and overnight evidence. |
 | [Continuous context backup loop](continuous_context_backup) | What to commit to the repo vs keep local (no secrets). |
 | [Usage budget and throttling](usage_budget_and_throttling) | Throttle ladder when model/API budget is tight. |
+| [Platform update runbook](platform_update_runbook) | Standardized patch/upgrade flow (`--update`) with backup and verification checkpoints. |
 

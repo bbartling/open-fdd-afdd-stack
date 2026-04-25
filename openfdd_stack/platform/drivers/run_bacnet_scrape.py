@@ -72,6 +72,35 @@ def _fetch_platform_config(log: logging.Logger) -> dict | None:
         return None
 
 
+def _fetch_platform_config_with_startup_retry(
+    log: logging.Logger, attempts: int = 5, base_delay_sec: float = 1.0
+) -> dict | None:
+    """Retry GET /config a few times to tolerate API startup races."""
+    last_result: dict | None = None
+    for attempt in range(1, attempts + 1):
+        last_result = _fetch_platform_config(log)
+        if last_result is not None:
+            _CONFIG_CACHE["ts"] = time.time()
+            _CONFIG_CACHE["cfg"] = last_result
+            if attempt > 1:
+                log.info("GET /config recovered on attempt %d/%d", attempt, attempts)
+            return last_result
+        if attempt < attempts:
+            sleep_sec = base_delay_sec * attempt
+            log.info(
+                "GET /config not ready yet (attempt %d/%d); retrying in %.1fs",
+                attempt,
+                attempts,
+                sleep_sec,
+            )
+            time.sleep(sleep_sec)
+    log.warning(
+        "GET /config unavailable after %d attempts; continuing with env/defaults.",
+        attempts,
+    )
+    return None
+
+
 _CONFIG_CACHE: _PlatformConfigCache = {"ts": 0.0, "cfg": None}
 
 
@@ -99,7 +128,7 @@ def _resolve_bacnet_gateways_json(log: logging.Logger) -> str | None:
     Multi-gateway JSON: prefer GET /config (RDF/UI) so PUT /config applies without
     scraper restart; fall back to OFDD_BACNET_GATEWAYS / overlay env.
     """
-    cfg = _fetch_platform_config(log)
+    cfg = _fetch_platform_config_cached(log)
     if cfg:
         raw = cfg.get("bacnet_gateways")
         if raw is not None:
@@ -164,6 +193,9 @@ def main() -> int:
 
     setup_logging(args.verbose)
     log = logging.getLogger("open_fdd.bacnet")
+
+    # Best effort at startup: absorb brief API readiness races before falling back.
+    _fetch_platform_config_with_startup_retry(log)
 
     from openfdd_stack.platform.config import get_platform_settings
     from openfdd_stack.platform.drivers.bacnet import run_bacnet_scrape_data_model

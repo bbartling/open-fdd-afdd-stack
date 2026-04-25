@@ -12,7 +12,8 @@
 # Optional (single-purpose):
 #   ./scripts/bootstrap.sh --install-docker     # attempt Docker install (Linux) then run
 #   ./scripts/bootstrap.sh --minimal            # DB + bacnet-server + bacnet-scraper only (add --with-grafana for Grafana)
-#   ./scripts/bootstrap.sh --verify             # health checks + ufw hints for 8080/tcp + 47808/udp (read-only; does not edit .env or recreate containers)
+#   ./scripts/bootstrap.sh --verify             # health checks + ufw hints + OpenClaw sibling-network diagnostics (read-only; does not edit .env or recreate containers)
+#   ./scripts/bootstrap.sh --build api fdd-loop mcp-rag --verify   # rebuild selected services, then run verify in same command
 #   ./scripts/bootstrap.sh --verify --verify-firewall-strict   # same, but exit 1 if ufw active and BACnet/gateway ports not ALLOW
 #   ./scripts/bootstrap.sh --test             # run tests: frontend (lint + typecheck + vitest), backend (pytest), Caddy validate; then exit. Does not run E2E/Selenium or long-running tests. Docker optional (skips Caddy validate if unavailable). OFDD_BOOTSTRAP_INSTALL_DEV=1 can auto-create .venv + pip install -e '.[dev]'.
 #   ./scripts/bootstrap.sh --update             # git pull this repo + diy-bacnet-server sibling, rebuild, restart (keeps DB)
@@ -23,6 +24,7 @@
 #   ./scripts/bootstrap.sh --frontend          # before start: stop frontend, remove frontend node_modules volume (fresh npm install on next up)
 #   ./scripts/bootstrap.sh --reset-data        # delete all sites via API + POST /data-model/reset (testing; clears data model + timeseries)
 #   ./scripts/bootstrap.sh --purge-timeseries  # delete only timeseries rows (keeps sites/equipment/points/data model)
+#   ./scripts/bootstrap.sh --enforce-network-default  # reset graph config to canonical defaults (including BACnet URL via caddy and 5-min scrape)
 #
 #
 #
@@ -30,12 +32,14 @@
 #   ./scripts/bootstrap.sh --maintenance --update --verify
 #   --verify here is HTTP health only (BACnet server_hello, API /health), not pytest.
 #   ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests
+# Simplified recurring site patch update (keeps DB/model, fast path):
+#   ./scripts/bootstrap.sh --maintenance --update --verify
 #
 #
 # Heavy ops example (pull, rebuild, verify, tests, app user, frontend volume reset, self-signed Caddy):
 #   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --caddy-self-signed
-#   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag
-#   Standard HTTP lab (OT NIC): ./scripts/bootstrap.sh --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456
+#   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag  --enforce-network-default
+#   Standard HTTP lab (OT NIC): ./scripts/bootstrap.sh --verify --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag --enforce-network-default
 
 
 set -euo pipefail
@@ -57,6 +61,7 @@ MODE_EXPLICIT=false
 RESET_GRAFANA=false
 RESET_DATA=false
 PURGE_TIMESERIES=false
+ENFORCE_NETWORK_DEFAULT=false
 WITH_GRAFANA=false
 WITH_MQTT_BRIDGE=false
 WITH_MCP_RAG=false
@@ -142,6 +147,7 @@ while [[ $i -lt ${#args[@]} ]]; do
     --with-mcp-rag) WITH_MCP_RAG=true ;;
     --reset-data) RESET_DATA=true ;;
     --purge-timeseries) PURGE_TIMESERIES=true ;;
+    --enforce-network-default) ENFORCE_NETWORK_DEFAULT=true ;;
     --build-all) BUILD_ALL=true ;;
     --update) UPDATE_PULL_REBUILD=true ;;
     --force-rebuild) UPDATE_FORCE_REBUILD=true ;;
@@ -226,7 +232,7 @@ Core:
   --with-mqtt-bridge        Start Mosquitto + wire BACnet2MQTT env (experimental; future remote/MQTT use—not core product yet)
   --with-mcp-rag            Include MCP RAG service (http://localhost:8090; retrieval over this repo docs + generated text + sparse-cloned upstream docs/ from open-fdd, diy-bacnet-server, easy-aso; see stack/mcp-rag/.vendor-docs/)
   --doctor                  Read-only diagnostics: Docker, Compose, Python, argon2-cffi, paths (no stack changes). Exit 1 if critical checks fail.
-  --verify                  Show running services + health checks + ufw hints for 8080/tcp and 47808/udp (read-only; add --verify-firewall-strict to fail closed)
+  --verify                  Show running services + health checks + ufw hints for 8080/tcp and 47808/udp; if OpenClaw gateway is running, also print sibling-network diagnostics + fix commands for openfdd_api:8000. Can be combined with --build/--build-all/--update.
   --verify --test           Verify services then run tests; then exit
   --test                    Run tests only: frontend (lint + typecheck + vitest), backend (pytest), Caddy validate; then exit (no E2E/Selenium). Docker is optional (Caddy validate skipped if unavailable). Env OFDD_BOOTSTRAP_INSTALL_DEV=1 auto-creates .venv and pip install -e '.[dev]' when pytest is missing.
   --update                  Git pull this AFDD stack repo + diy-bacnet-server (sibling), rebuild, restart (keeps DB)
@@ -246,6 +252,8 @@ Data / ops:
   --reset-grafana           Wipe Grafana volume and restart Grafana (re-apply provisioning)
   --reset-data              Delete all sites via API + POST /data-model/reset (testing; clears model + timeseries)
   --purge-timeseries        Delete timeseries only via API (/timeseries/purge). Keeps sites/equipment/points and data model.
+  --enforce-network-default Force reset graph config to canonical defaults (rule_interval=3h, bacnet_scrape_interval_min=5, bacnet_server_url=http://caddy:8081, site IDs back to default, weather defaults, graph sync=5). Useful after upgrades to normalize old persisted config.
+                           When set, this path is used instead of first-boot seed_config_via_api in full/model mode.
 
 Edge settings:
   --retention-days N        TimescaleDB retention window (default 365)
@@ -302,6 +310,9 @@ fi
 if $RESET_DATA && $PURGE_TIMESERIES; then
   echo "Both --reset-data and --purge-timeseries set; --reset-data already clears timeseries. Ignoring --purge-timeseries."
   PURGE_TIMESERIES=false
+fi
+if $ENFORCE_NETWORK_DEFAULT && [[ "$MODE" == "collector" || "$MODE" == "engine" ]]; then
+  echo "--enforce-network-default requested with MODE=$MODE; bootstrap will keep the request and attempt enforcement when API becomes reachable in applicable flows."
 fi
 
 # --update --test: defer pytest to after pull/rebuild (otherwise the early --test handler exits before --update runs).
@@ -1631,12 +1642,65 @@ verify_ufw_firewall_for_bacnet_lab() {
   fi
 }
 
+verify_openclaw_sibling_network() {
+  # Optional readiness check for sibling OpenClaw container bench setups.
+  # Non-fatal: prints actionable guidance when networking is not wired yet.
+  local shared_net="${OFDD_SHARED_DOCKER_NETWORK:-openfdd_shared}"
+  local openclaw_name=""
+  openclaw_name="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^openclaw-.*-gateway-[0-9]+$|^openclaw$' | head -1 || true)"
+
+  # Only run this section when OpenClaw gateway container is present.
+  [[ -n "$openclaw_name" ]] || return 0
+
+  echo ""
+  echo "=== OpenClaw sibling-container network check ==="
+  echo "Detected OpenClaw container: $openclaw_name"
+  echo "Shared network target: $shared_net"
+
+  if ! docker network inspect "$shared_net" >/dev/null 2>&1; then
+    echo "WARN OpenClaw network: Docker network '$shared_net' not found."
+    echo "     If using sibling-container testing, create/connect the expected shared network first."
+    return 0
+  fi
+
+  local openclaw_on_net=0 api_on_net=0
+  if docker network inspect "$shared_net" 2>/dev/null | grep -q "\"$openclaw_name\""; then
+    openclaw_on_net=1
+  fi
+  if docker network inspect "$shared_net" 2>/dev/null | grep -q "\"openfdd_api\""; then
+    api_on_net=1
+  fi
+
+  if [[ "$openclaw_on_net" -eq 1 ]] && [[ "$api_on_net" -eq 1 ]]; then
+    echo "OK   OpenClaw network: '$openclaw_name' and 'openfdd_api' are both attached to '$shared_net'."
+  else
+    echo "WARN OpenClaw network: missing attachment(s) on '$shared_net'."
+    [[ "$openclaw_on_net" -eq 1 ]] && echo "     - '$openclaw_name': attached" || echo "     - '$openclaw_name': missing"
+    [[ "$api_on_net" -eq 1 ]] && echo "     - 'openfdd_api': attached" || echo "     - 'openfdd_api': missing"
+    echo "     Fix:"
+    echo "       docker network connect $shared_net $openclaw_name || true"
+    echo "       docker network connect $shared_net openfdd_api || true"
+  fi
+
+  if docker exec "$openclaw_name" sh -lc "wget -qO- http://openfdd_api:8000/health >/dev/null" 2>/dev/null; then
+    echo "OK   OpenClaw -> API: http://openfdd_api:8000/health reachable from '$openclaw_name'."
+  else
+    echo "WARN OpenClaw -> API: http://openfdd_api:8000/health not reachable from '$openclaw_name'."
+    echo "     Probe manually:"
+    echo "       docker exec -it $openclaw_name sh -lc 'wget -qO- http://openfdd_api:8000/health || true'"
+    echo "     Fallback probe (if host alias works in this runtime):"
+    echo "       docker exec -it $openclaw_name sh -lc 'wget -qO- http://host.docker.internal:8000/health || true'"
+    echo "     This is usually Docker network/DNS wiring, not an app regression."
+  fi
+}
+
 verify() {
   local HOST_BACNET_OK=false
   echo "=== Services ==="
   docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | head -15
   echo ""
   verify_ufw_firewall_for_bacnet_lab
+  verify_openclaw_sibling_network
 
   if docker exec openfdd_timescale pg_isready -U postgres -d openfdd 2>/dev/null; then
     echo "DB: localhost:5432/openfdd (OK)"
@@ -2101,6 +2165,80 @@ print(json.dumps({
   return 0
 }
 
+enforce_network_default_config_via_api() {
+  if ! wait_for_api; then
+    echo "Skip --enforce-network-default (API not reachable)."
+    return 1
+  fi
+
+  echo "=== Enforcing canonical graph config defaults (PUT /config) ==="
+  local curl_auth=()
+  [[ -n "${OFDD_API_KEY:-}" ]] && curl_auth=(-H "Authorization: Bearer $OFDD_API_KEY")
+  API_BASE="$(bootstrap_api_base_for_host_curl)"
+
+  # If we already have sites, point Open-Meteo at first site name (same behavior as seed path).
+  local open_meteo_site_id_override=""
+  local sites_json
+  sites_json="$(curl -sf -H "Accept: application/json" "${curl_auth[@]}" "$API_BASE/sites" 2>/dev/null)" || true
+  if [[ -n "$sites_json" ]]; then
+    open_meteo_site_id_override=$(echo "$sites_json" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    sites = d if isinstance(d, list) else []
+    if sites and sites[0].get('name'):
+        print(sites[0]['name'])
+except Exception:
+    pass
+" 2>/dev/null)
+  fi
+
+  local body resp_file http_code resp
+  # /config currently validates bacnet_gateways as optional string (JSON-encoded list), not array.
+  body="$(OPEN_METEO_SITE_ID_OVERRIDE="$open_meteo_site_id_override" python3 -c "
+import json, os
+om_site = os.environ.get('OPEN_METEO_SITE_ID_OVERRIDE') or 'default'
+print(json.dumps({
+  'rule_interval_hours': 3.0,
+  'lookback_days': 3,
+  'rules_dir': 'stack/rules',
+  'brick_ttl_dir': 'config',
+  'bacnet_enabled': True,
+  'bacnet_scrape_interval_min': 5,
+  'bacnet_server_url': 'http://caddy:8081',
+  'bacnet_site_id': 'default',
+  'bacnet_gateways': '',
+  'open_meteo_enabled': True,
+  'open_meteo_interval_hours': 24,
+  'open_meteo_latitude': 41.88,
+  'open_meteo_longitude': -87.63,
+  'open_meteo_timezone': 'America/Chicago',
+  'open_meteo_days_back': 3,
+  'open_meteo_site_id': om_site,
+  'graph_sync_interval_min': 5,
+}))
+" 2>/dev/null)" || body='{"rule_interval_hours":3.0,"lookback_days":3,"rules_dir":"stack/rules","brick_ttl_dir":"config","bacnet_enabled":true,"bacnet_scrape_interval_min":5,"bacnet_server_url":"http://caddy:8081","bacnet_site_id":"default","bacnet_gateways":"","open_meteo_enabled":true,"open_meteo_interval_hours":24,"open_meteo_latitude":41.88,"open_meteo_longitude":-87.63,"open_meteo_timezone":"America/Chicago","open_meteo_days_back":3,"open_meteo_site_id":"default","graph_sync_interval_min":5}'
+  resp_file="$(mktemp -t ofdd_enforce_network_default_XXXXXX)"
+  http_code="$(curl -sS -o "$resp_file" -w "%{http_code}" -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" 2>/dev/null || echo "000")"
+  resp="$(cat "$resp_file" 2>/dev/null || true)"
+  rm -f "$resp_file" 2>/dev/null || true
+  if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "  PUT /config OK (graph config reset to canonical defaults)."
+    [[ -n "$open_meteo_site_id_override" ]] && echo "  open_meteo_site_id set to first site: $open_meteo_site_id_override"
+  else
+    echo "  PUT /config failed while enforcing defaults (HTTP ${http_code})."
+    [[ -n "$resp" ]] && echo "  Response: $resp"
+    return 1
+  fi
+  # Trigger one FDD run so weather is fetched and points created for selected open_meteo_site_id.
+  if curl -sf -X POST "$API_BASE/run-fdd" -H "Content-Type: application/json" "${curl_auth[@]}" -d '{}' >/dev/null 2>&1; then
+    echo "  POST /run-fdd OK (FDD loop will run soon; weather points created for open_meteo_site_id)."
+  else
+    echo "  POST /run-fdd skipped or failed (weather will appear after next FDD run or weather scraper)."
+  fi
+  return 0
+}
+
 reset_data_via_api() {
   if ! wait_for_api; then
     echo "Skip --reset-data (API not reachable)."
@@ -2226,7 +2364,7 @@ fi
 # -----------------------------
 # Early exit modes
 # -----------------------------
-if $VERIFY_ONLY && ! $UPDATE_PULL_REBUILD; then
+if $VERIFY_ONLY && ! $UPDATE_PULL_REBUILD && ! $BUILD_ALL && [[ -z "$BUILD_SERVICES_STR" ]]; then
   check_prereqs
   verify
   if $VERIFY_CODE; then
@@ -2414,6 +2552,10 @@ if $UPDATE_PULL_REBUILD; then
     run_verify_code_matrix_or_single || exit 1
     run_optional_diy_bacnet_tests || exit 1
   fi
+  if $ENFORCE_NETWORK_DEFAULT; then
+    echo ""
+    enforce_network_default_config_via_api
+  fi
   validate_container_connectivity_hops
   if ! $VERIFY_ONLY && ! $RUN_TESTS_AFTER_UPDATE; then
     echo "  Verify: ./scripts/bootstrap.sh --verify"
@@ -2432,6 +2574,10 @@ if $BUILD_ALL; then
   $dc up -d
   bootstrap_compose_force_recreate_if_needed
   echo "Done. All containers rebuilt and restarted."
+  if $VERIFY_ONLY; then
+    echo ""
+    verify
+  fi
   exit 0
 fi
 
@@ -2455,6 +2601,9 @@ fi
 # --build SERVICE ...
 # -----------------------------
 if [[ -n "$BUILD_SERVICES_STR" ]]; then
+  if echo " $BUILD_SERVICES_STR " | grep -q " mcp-rag "; then
+    ensure_docs_text_and_rag_index
+  fi
   cd "$STACK_DIR"
   echo "=== Rebuilding and restarting: $BUILD_SERVICES_STR ==="
   $dc build $BUILD_SERVICES_STR
@@ -2467,6 +2616,10 @@ if [[ -n "$BUILD_SERVICES_STR" ]]; then
   echo "Done. Services restarted: $BUILD_SERVICES_STR"
   if $WITH_MQTT_BRIDGE; then
     echo "  MQTT:     localhost:1883 (experimental BACnet2MQTT; for future remote/MQTT workflows)"
+  fi
+  if $VERIFY_ONLY; then
+    echo ""
+    verify
   fi
   exit 0
 fi
@@ -2513,7 +2666,11 @@ apply_migrations_best_effort
 
 if [[ "$MODE" == "full" || "$MODE" == "model" ]]; then
   echo ""
-  seed_config_via_api || true
+  if $ENFORCE_NETWORK_DEFAULT; then
+    enforce_network_default_config_via_api
+  else
+    seed_config_via_api || true
+  fi
 fi
 
 if $RESET_DATA; then

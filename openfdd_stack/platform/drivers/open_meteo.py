@@ -185,19 +185,10 @@ def ensure_weather_equipment(site_id: uuid.UUID, cur) -> uuid.UUID:
     """
     cur.execute(
         """
-        SELECT id FROM equipment
-        WHERE site_id = %s AND name = %s
-        LIMIT 1
-        """,
-        (site_id, WEATHER_EQUIPMENT_NAME),
-    )
-    row = cur.fetchone()
-    if row:
-        return row["id"]
-    cur.execute(
-        """
         INSERT INTO equipment (site_id, name, equipment_type)
         VALUES (%s, %s, %s)
+        ON CONFLICT (site_id, name) DO UPDATE SET
+            equipment_type = EXCLUDED.equipment_type
         RETURNING id
         """,
         (site_id, WEATHER_EQUIPMENT_NAME, WEATHER_EQUIPMENT_TYPE),

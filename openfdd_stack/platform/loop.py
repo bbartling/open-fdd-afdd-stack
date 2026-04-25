@@ -28,6 +28,77 @@ from openfdd_stack.platform.site_resolver import resolve_site_uuid
 from open_fdd.schema import FDDResult
 
 
+def _external_to_semantic_column_map(column_map: dict[str, str]) -> dict[str, str]:
+    """Invert semantic->external mapping to external->semantic for DataFrame columns."""
+    out: dict[str, str] = {}
+    for semantic, external in (column_map or {}).items():
+        sk = str(semantic or "").strip()
+        ev = str(external or "").strip()
+        if sk and ev and ev not in out:
+            out[ev] = sk
+    return out
+
+
+def _runner_column_map(column_map: dict[str, str]) -> dict[str, str]:
+    """
+    Build logical-input -> DataFrame-column mapping for RuleRunner.
+
+    The TTL resolver provides logical->external_id. After DataFrame columns are
+    renamed to semantic/logical names, remap values to those semantic columns.
+    """
+    out: dict[str, str] = {}
+    for logical_key, external_label in (column_map or {}).items():
+        lk = str(logical_key or "").strip()
+        ev = str(external_label or "").strip()
+        if not lk or not ev:
+            continue
+        # Keep canonical resolver mapping (logical -> external_id label).
+        out[lk] = ev
+        # When resolver disambiguates as BrickClass|rule_input, also expose:
+        # - BrickClass -> external_id (first wins)
+        # - BrickClass|BrickClass -> external_id (matches open-fdd runner lookup order)
+        if "|" in lk:
+            brick_class = lk.split("|", 1)[0].strip()
+            if brick_class and brick_class not in out:
+                out[brick_class] = ev
+            composite_self = f"{brick_class}|{brick_class}" if brick_class else ""
+            if composite_self and composite_self not in out:
+                out[composite_self] = ev
+    return out
+
+
+def _log_missing_rule_inputs_non_strict(
+    df: pd.DataFrame,
+    rules: list[dict],
+    *,
+    strict: bool,
+    scope: str,
+    column_map: dict[str, str],
+) -> None:
+    """In non-strict mode, emit diagnostics for rule inputs absent from resolved columns."""
+    if strict or df is None or df.empty:
+        return
+    from open_fdd.engine.runner import col_map_for_rule
+
+    cols = {str(c) for c in df.columns}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        inputs = rule.get("inputs")
+        if not isinstance(inputs, dict) or not inputs:
+            continue
+        resolved = col_map_for_rule(rule, column_map or {})
+        missing = [str(inp) for inp, col in resolved.items() if str(col) not in cols]
+        if missing:
+            _log.info(
+                "Non-strict mode: rule '%s' missing inputs after column resolution (%s): %s; available columns sample=%s",
+                rule.get("name") or rule.get("flag") or "unnamed",
+                scope,
+                ", ".join(sorted(missing)),
+                ", ".join(sorted(list(cols))[:12]),
+            )
+
+
 def _fdd_runner_run_kwargs(
     settings: object,
     *,
@@ -118,8 +189,6 @@ def load_timeseries_for_site(
     df = pd.DataFrame(rows)
     df = df.pivot_table(index="ts", columns="external_id", values="value")
     df = df.reset_index()
-    csv_cols = {ext: column_map.get(ext, ext) for ext in ext_ids}
-    df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
 
@@ -175,8 +244,6 @@ def load_timeseries_for_equipment(
     df = pd.DataFrame(rows)
     df = df.pivot_table(index="ts", columns="external_id", values="value")
     df = df.reset_index()
-    csv_cols = {ext: column_map.get(ext, ext) for ext in ext_ids}
-    df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
 
@@ -200,12 +267,7 @@ def _point_lookup_for_equipment(
                 (site_id, site_id, equipment_id),
             )
             rows = cur.fetchall()
-    inverse_column_map: dict[str, str] = {}
-    for k, v in (column_map or {}).items():
-        ks = str(k or "").strip()
-        vs = str(v or "").strip()
-        if ks and vs and vs not in inverse_column_map:
-            inverse_column_map[vs] = ks
+    inverse_column_map = _external_to_semantic_column_map(column_map)
 
     lookup: dict[str, dict[str, str]] = {}
     for r in rows:
@@ -222,7 +284,16 @@ def _point_lookup_for_equipment(
             "object_identifier": str(r.get("object_identifier") or "").strip(),
             "object_name": str(r.get("object_name") or "").strip(),
         }
-        for key in (external_id, fdd_input, mapped_key, semantic_key):
+        lookup_keys = [external_id, fdd_input, mapped_key, semantic_key]
+        # Resolver may return composite logical keys (e.g. BrickClass|rule_input).
+        # Add base Brick variants so provenance can match rule inputs consistently.
+        for candidate in (mapped_key, semantic_key):
+            if "|" in candidate:
+                base = candidate.split("|", 1)[0].strip()
+                if base:
+                    lookup_keys.append(base)
+                    lookup_keys.append(f"{base}|{base}")
+        for key in lookup_keys:
             if key and key not in lookup:
                 lookup[key] = meta
     return lookup
@@ -244,12 +315,7 @@ def _point_lookup_for_site(
                 (site_id, site_id),
             )
             rows = cur.fetchall()
-    inverse_column_map: dict[str, str] = {}
-    for k, v in (column_map or {}).items():
-        ks = str(k or "").strip()
-        vs = str(v or "").strip()
-        if ks and vs and vs not in inverse_column_map:
-            inverse_column_map[vs] = ks
+    inverse_column_map = _external_to_semantic_column_map(column_map)
 
     lookup: dict[str, dict[str, str]] = {}
     for r in rows:
@@ -266,7 +332,16 @@ def _point_lookup_for_site(
             "object_identifier": str(r.get("object_identifier") or "").strip(),
             "object_name": str(r.get("object_name") or "").strip(),
         }
-        for key in (external_id, fdd_input, mapped_key, semantic_key):
+        lookup_keys = [external_id, fdd_input, mapped_key, semantic_key]
+        # Resolver may return composite logical keys (e.g. BrickClass|rule_input).
+        # Add base Brick variants so provenance can match rule inputs consistently.
+        for candidate in (mapped_key, semantic_key):
+            if "|" in candidate:
+                base = candidate.split("|", 1)[0].strip()
+                if base:
+                    lookup_keys.append(base)
+                    lookup_keys.append(f"{base}|{base}")
+        for key in lookup_keys:
             if key and key not in lookup:
                 lookup[key] = meta
     return lookup
@@ -316,11 +391,34 @@ def _results_with_provenance(
             rule = rule_by_flag.get(col, {})
             inputs = rule.get("inputs") if isinstance(rule, dict) else {}
             input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
-            candidates = [
-                point_lookup[k]
-                for k in input_keys
-                if isinstance(k, str) and k in point_lookup
-            ]
+            candidate_keys: list[str] = []
+            for key in input_keys:
+                if not isinstance(key, str):
+                    continue
+                k = key.strip()
+                if not k:
+                    continue
+                candidate_keys.append(k)
+                if "|" in k:
+                    base = k.split("|", 1)[0].strip()
+                    if base:
+                        candidate_keys.append(base)
+                        candidate_keys.append(f"{base}|{base}")
+                spec = inputs.get(key) if isinstance(inputs, dict) else None
+                if isinstance(spec, dict):
+                    brick = str(spec.get("brick") or "").strip()
+                    if brick:
+                        candidate_keys.append(brick)
+                        candidate_keys.append(f"{brick}|{brick}")
+            seen: set[str] = set()
+            candidates = []
+            for ck in candidate_keys:
+                if ck in seen:
+                    continue
+                seen.add(ck)
+                meta = point_lookup.get(ck)
+                if meta:
+                    candidates.append(meta)
             primary = candidates[0] if candidates else None
             evidence = {
                 "rule_name": rule.get("name") if isinstance(rule, dict) else None,
@@ -501,6 +599,7 @@ def run_fdd_loop(
         else BrickTtlColumnMapResolver()
     )
     column_map = resolver.build_column_map(ttl_path=ttl_path)
+    runner_col_map = _runner_column_map(column_map)
     equipment_types = (
         get_equipment_types_from_ttl(str(ttl_path)) if ttl_path.exists() else []
     )
@@ -557,10 +656,17 @@ def run_fdd_loop(
                 if df is None or len(df) < 6:
                     continue
                 ran_equipment = True
+                _log_missing_rule_inputs_non_strict(
+                    df,
+                    rules,
+                    strict=strict,
+                    scope=f"site={site_name} equipment={eq_name}",
+                    column_map=runner_col_map,
+                )
                 res = runner.run(
                     df,
                     **_fdd_runner_run_kwargs(
-                        settings, strict=strict, column_map=column_map
+                        settings, strict=strict, column_map=runner_col_map
                     ),
                 )
                 point_lookup = _point_lookup_for_equipment(sid, eq_name, column_map)
@@ -578,10 +684,17 @@ def run_fdd_loop(
                 df = load_timeseries_for_site(sid, start_ts, end_ts, column_map)
                 if df is not None and len(df) >= 6:
                     sites_processed += 1
+                    _log_missing_rule_inputs_non_strict(
+                        df,
+                        rules,
+                        strict=strict,
+                        scope=f"site={site_name}",
+                        column_map=runner_col_map,
+                    )
                     res = runner.run(
                         df,
                         **_fdd_runner_run_kwargs(
-                            settings, strict=strict, column_map=column_map
+                            settings, strict=strict, column_map=runner_col_map
                         ),
                     )
                     point_lookup = _point_lookup_for_site(sid, column_map)

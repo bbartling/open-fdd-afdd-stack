@@ -441,8 +441,9 @@ class PointImportRow(BaseModel):
         "For decode float32, uint32, or int32, count must be >= 2.",
     )
 
-    model_config = {
-        "json_schema_extra": {
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
             "examples": [
                 {
                     "point_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -459,8 +460,8 @@ class PointImportRow(BaseModel):
                     "rule_input": "sat",
                 },
             ]
-        }
-    }
+        },
+    )
 
 
 class EquipmentImportRow(BaseModel):
@@ -506,6 +507,7 @@ class EquipmentImportRow(BaseModel):
         None,
         description="Optional engineering metadata merged into metadata.engineering.",
     )
+    model_config = ConfigDict(extra="forbid")
 
 
 class DataModelImportBody(BaseModel):
@@ -538,6 +540,135 @@ class DataModelImportBody(BaseModel):
         default_factory=list,
         description="Optional: update equipment feeds/fed_by; RDF is rebuilt and serialized after import.",
     )
+    template_hints: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional helper metadata from GET /data-model/export/import-template. Ignored by import execution.",
+    )
+
+
+class ImportTemplateHints(BaseModel):
+    required_create_fields: list[str] = Field(
+        default_factory=list,
+        description="Required point fields when point_id is omitted.",
+    )
+    optional_point_fields: list[str] = Field(
+        default_factory=list,
+        description="Optional point fields commonly used by AI tagging workflows.",
+    )
+    optional_equipment_fields: list[str] = Field(
+        default_factory=list,
+        description="Optional equipment relationship/metadata fields for import payloads.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes to avoid common AI workflow mistakes.",
+    )
+    minimal_example: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Minimal import-ready payload example.",
+    )
+
+
+class DataModelImportTemplateBody(DataModelImportBody):
+    template_hints: ImportTemplateHints
+
+
+@router.get(
+    "/export/import-template",
+    response_model=DataModelImportTemplateBody,
+    summary="Export an import-safe JSON template for AI/human tagging",
+    response_description="Import-safe payload shape: points[] plus optional equipment[] + template_hints; excludes export-only metadata fields.",
+)
+def export_import_template(
+    site_id: str | None = Query(
+        None,
+        description="Filter by site (UUID, name, or description), same as /data-model/export.",
+    ),
+    bacnet_only: bool = Query(
+        False,
+        description="If true, include only BACnet discovery rows (bacnet_device_id + object_identifier).",
+    ),
+):
+    """Return an import-safe template payload derived from export rows.
+
+    This route removes export-only fields (e.g. engineering/equipment_metadata) that
+    are useful for context but invalid in PUT /data-model/import point rows.
+    """
+    rows = _build_unified_export(site_id)
+    if bacnet_only:
+        rows = [
+            r
+            for r in rows
+            if r.bacnet_device_id is not None and r.object_identifier is not None
+        ]
+
+    points: list[dict[str, Any]] = []
+    for r in rows:
+        point: dict[str, Any] = {
+            "point_id": r.point_id,
+            "site_id": r.site_id,
+            "site_name": r.site_name,
+            "equipment_id": r.equipment_id,
+            "equipment_name": r.equipment_name,
+            "external_id": r.external_id,
+            "bacnet_device_id": r.bacnet_device_id,
+            "object_identifier": r.object_identifier,
+            "object_name": r.object_name,
+            "brick_type": r.brick_type,
+            "rule_input": r.rule_input,
+            "unit": r.unit,
+            "polling": r.polling,
+            "modbus_config": r.modbus_config,
+        }
+        points.append(point)
+    example_point = {
+        "point_id": None,
+        "site_id": "<site-uuid>",
+        "external_id": "ZoneTemp",
+        "bacnet_device_id": "3456789",
+        "object_identifier": "analog-input,1",
+        "object_name": "ZoneTemp",
+        "brick_type": "Zone_Air_Temperature_Sensor",
+        "rule_input": "zt",
+        "polling": True,
+    }
+    if not points:
+        # Keep endpoint useful right after clean reset by returning one scaffold row.
+        points = [example_point]
+    return {
+        "points": points,
+        "equipment": [],
+        "template_hints": {
+            "required_create_fields": [
+                "site_id (or resolvable site_name)",
+                "external_id",
+                "bacnet_device_id",
+                "object_identifier",
+            ],
+            "optional_point_fields": [
+                "object_name",
+                "brick_type",
+                "rule_input",
+                "equipment_name",
+                "unit",
+                "polling",
+            ],
+            "optional_equipment_fields": [
+                "equipment_name",
+                "equipment_type",
+                "site_id",
+                "feeds_equipment_id",
+                "fed_by_equipment_id",
+                "engineering",
+            ],
+            "notes": [
+                "Use this endpoint for round-trip-safe AI imports instead of replaying raw /data-model/export rows.",
+                "When point_id is omitted, incomplete create rows fail with 4xx.",
+                "Export-only context fields (engineering/equipment_metadata mirrors on point rows) are intentionally excluded here.",
+            ],
+            "minimal_example": {"points": [example_point], "equipment": []},
+        },
+    }
 
 
 def _normalize_ttl_id_to_uuid(s: str) -> str | None:
@@ -748,9 +879,9 @@ def _create_or_upsert_without_point_id(
 
     if modbus_path:
         if not (effective_site_id and point_row.external_id):
-            return (
-                "skipped",
-                "Modbus point needs site_id/site_name and external_id",
+            raise HTTPException(
+                422,
+                "Invalid create payload: Modbus point requires site_id/site_name and external_id when point_id is omitted.",
             )
     elif not all(
         [
@@ -760,9 +891,9 @@ def _create_or_upsert_without_point_id(
             point_row.object_identifier,
         ]
     ):
-        return (
-            "skipped",
-            "point_id not found and create fields incomplete (need site_id/site_name, external_id, bacnet_device_id, object_identifier) or valid modbus_config",
+        raise HTTPException(
+            422,
+            "Invalid create payload: when point_id is omitted, required fields are site_id/site_name, external_id, bacnet_device_id, and object_identifier (or provide valid modbus_config).",
         )
     site_uuid = _parse_uuid_or_400(
         effective_site_id,
@@ -1402,6 +1533,14 @@ def _clear_fault_history_tables(cur: Any) -> dict[str, int]:
     return counts
 
 
+def _clear_model_tables(cur: Any) -> dict[str, int]:
+    """Delete all model rows through sites cascade (bench-only destructive reset)."""
+    counts: dict[str, int] = {}
+    cur.execute("DELETE FROM sites")
+    counts["sites_deleted"] = int(cur.rowcount or 0)
+    return counts
+
+
 @router.post(
     "/reset",
     summary="Reset graph to DB-only (clear BACnet and orphans; Brick repopulated from DB)",
@@ -1412,10 +1551,27 @@ def data_model_reset(
         False,
         description="Also delete fault_state, fault_results, and fault_events for a true clean test-bench reset.",
     ),
+    clear_model_db: bool = Query(
+        False,
+        description="Bench-only destructive option: delete all sites (cascade removes equipment/points), then rebuild TTL from now-empty DB model state.",
+    ),
 ):
-    """Clear the in-memory graph and repopulate from DB only (Brick). Removes all BACnet triples and orphaned blank nodes, then writes config/data_model.ttl. Brick triples come from the database—so if the DB still has sites/equipment/points, the TTL will still contain them. To get an empty data model: delete all sites via CRUD (DELETE /sites/{id} for each; cascade removes equipment and points), then POST /data-model/reset. By default, active fault_state rows for deleted sites are deactivated to avoid stale active fault drift; pass clear_fault_history=true to delete fault_state/fault_results/fault_events entirely."""
+    """Clear in-memory graph and repopulate from DB (Brick), with optional destructive DB model wipe.
+
+    Default behavior is DB-backed graph reset only. Set clear_model_db=true (bench-only)
+    for a true clean-slate model reset by deleting all sites (cascade removes equipment/points)
+    before rebuilding TTL.
+    """
+    if clear_model_db:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                model_cleanup = _clear_model_tables(cur)
+            conn.commit()
+    else:
+        model_cleanup = {}
     reset_graph_to_db_only()
     cleanup: dict[str, int] = {}
+    cleanup.update(model_cleanup)
     with get_conn() as conn:
         with conn.cursor() as cur:
             if clear_fault_history:
@@ -1429,7 +1585,18 @@ def data_model_reset(
     ok, err = write_ttl_to_file()
     status = get_serialization_status()
     if ok:
-        if clear_fault_history:
+        if clear_model_db and clear_fault_history:
+            msg = (
+                "Graph reset to DB-only after destructive model wipe (sites/equipment/points removed) "
+                "and fault history cleared (fault_state, fault_results, fault_events)."
+            )
+        elif clear_model_db:
+            msg = (
+                "Graph reset to DB-only after destructive model wipe (sites/equipment/points removed). "
+                "Active fault_state rows for missing sites were deactivated; pass clear_fault_history=true "
+                "to fully clear fault tables."
+            )
+        elif clear_fault_history:
             msg = (
                 "Graph reset to DB-only and fault history cleared "
                 "(fault_state, fault_results, fault_events)."

@@ -24,7 +24,7 @@ This page describes a **single upload** workflow for mechanical engineers: send 
 
 1. **The canonical prompt** — Use **[AI-assisted data modeling](ai_assisted_tagging)** (section *LLM prompt and agent guidelines*), the inline template **below** on this page (“Copy/paste prompt template”), or the [Technical reference — LLM tagging workflow](../appendix/technical_reference#llm-tagging-workflow). You can copy from this page or keep an optional local mirror (e.g. `pdf/canonical_llm_prompt.txt`) for agents. The prompt must tell the LLM to return only `{"points": [...], "equipment": [...]}` with Brick types, rule_input slugs, equipment_name, feeds/fed_by, polling, and units (subject to the **pre-flight / job context** rules in the template).
 
-2. **The export JSON** — From **GET /data-model/export** (optionally `?site_id=YourSiteName`). Each row includes point fields (`point_id`, `bacnet_device_id`, `object_identifier`, `object_name`, `external_id`, `site_id`, `site_name`, `equipment_id`, `equipment_name`, `brick_type`, `rule_input`, `unit`, `polling`, …). Rows may also include **`engineering`** (and **`equipment_metadata`**) — a **per-equipment** mirror from the DB so the LLM sees rated/submittal context next to points. On **import**, write engineering updates under **`equipment[].engineering`**, not as ad-hoc point fields (see [Data model engineering](../howto/data_model_engineering) and `examples/223P_engineering/`). Unimported BACnet rows have `point_id: null` and null tagging fields until you import.
+2. **The export JSON** — From **GET /data-model/export** (optionally `?site_id=YourSiteName`). Each row includes point fields (`point_id`, `bacnet_device_id`, `object_identifier`, `object_name`, `external_id`, `site_id`, `site_name`, `equipment_id`, `equipment_name`, `brick_type`, `rule_input`, `unit`, `polling`, …). Rows may also include **`engineering`** (and **`equipment_metadata`**) — a **per-equipment** mirror from the DB so the LLM sees rated/submittal context next to points. On **import**, write engineering updates under **`equipment[].engineering`**, not as ad-hoc point fields (see [Data model engineering](../howto/data_model_engineering) and `examples/223P_engineering/`). Unimported BACnet rows have `point_id: null` and null tagging fields until you import. For round-trip-safe AI import payloads, prefer **GET `/data-model/export/import-template`** instead of raw export replay.
 
 3. **Faults and rules for this job (strongly recommended)** — So the LLM can align **rule_input**, **Brick types**, **units**, and especially **polling** with what you will actually run in Open-FDD:
    - Paste **YAML** from your project’s rules (e.g. from `stack/rules/` or your own rule files). **This is the best input for correct polling decisions** — the model can see exactly which point inputs each rule uses.
@@ -36,13 +36,15 @@ This page describes a **single upload** workflow for mechanical engineers: send 
 
 ## Copy/paste prompt template (recommended) {#copy-paste-prompt-template-recommended}
 
-Use this as your LLM **system** or **developer** prompt when transforming `GET /data-model/export` into import JSON. This is the **canonical** copy-paste text for the published docs (save to a local file such as `pdf/canonical_llm_prompt.txt` if you want a path for agents or runbooks).
+Use this as your LLM **system** or **developer** prompt when transforming Open-FDD export data into import JSON. Prefer the import-safe template endpoint; this is the **canonical** copy-paste text for the published docs (save to a local file such as `pdf/canonical_llm_prompt.txt` if you want a path for agents or runbooks).
 
 ```text
 You are transforming Open-FDD export JSON into Open-FDD import JSON.
 
 I will paste JSON from:
-GET /data-model/export?site_id=<site_id>
+GET /data-model/export/import-template?site_id=<site_id>
+
+If I provide raw GET /data-model/export rows instead, first transform to the import-safe shape by removing export-only row mirrors such as engineering and equipment_metadata before building the final import payload.
 
 Your job is to return ONLY valid JSON with EXACTLY these two top-level keys:
 
@@ -348,7 +350,7 @@ If topology is not known confidently, omit feeds/fed_by rather than guessing. Yo
 
 ## Validate before import (so backend CRUD accepts it)
 
-The Open-FDD **PUT /data-model/import** endpoint expects a body that matches the **DataModelImportBody** Pydantic model: exactly `points` (array) and optional `equipment` (array). If the LLM returns extra keys, wrong types, or invalid UUIDs, the API returns **422 Unprocessable Entity**.
+The Open-FDD **PUT /data-model/import** endpoint expects a body that matches the **DataModelImportBody** Pydantic model: exactly `points` (array) and optional `equipment` (array). Both top-level and nested rows are strict (`extra="forbid"`), so unknown keys in `points[]`/`equipment[]` also return **422 Unprocessable Entity**.
 
 To avoid that:
 
@@ -366,6 +368,7 @@ To avoid that:
    then your LLM replaced the UUID with the human-readable site name. Reinforce: **never** replace `site_id` with `site_name`; if the export has no UUID, keep `site_id` null and keep `site_name`.
 
 4. **Pydantic in the repo** — The backend defines the import shape in **open_fdd/platform/api/data_model.py**: `DataModelImportBody`, `PointImportRow`, `EquipmentImportRow`. A script or pipeline can import those models and validate the LLM output (e.g. `DataModelImportBody.model_validate(json.loads(llm_output))`) before returning it to the human. That way the human only sees JSON that is known to parse on the backend.
+5. **Use the built-in validator script** — Run `python scripts/validate_data_model_import.py payload.json` before import. It prints failing paths like `equipment[0].unexpected_field` and exits non-zero on validation failure.
 
 ---
 

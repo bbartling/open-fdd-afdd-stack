@@ -16,7 +16,7 @@ def test_external_to_semantic_column_map_inverts_unique_pairs():
     assert out["SA-T"] == "Supply_Air_Temperature_Sensor"
 
 
-def test_runner_column_map_targets_semantic_dataframe_columns():
+def test_runner_column_map_targets_external_id_dataframe_columns():
     out = loop._runner_column_map(
         {
             "Zone_Temperature_Sensor": "ZoneTemp",
@@ -24,12 +24,24 @@ def test_runner_column_map_targets_semantic_dataframe_columns():
             "sat": "SA-T",
         }
     )
-    assert out["Zone_Temperature_Sensor"] == "Zone_Temperature_Sensor"
-    assert out["Supply_Air_Temperature_Sensor"] == "Supply_Air_Temperature_Sensor"
-    assert out["sat"] == "Supply_Air_Temperature_Sensor"
+    assert out["Zone_Temperature_Sensor"] == "ZoneTemp"
+    assert out["Supply_Air_Temperature_Sensor"] == "SA-T"
+    assert out["sat"] == "SA-T"
 
 
-def test_load_timeseries_for_site_renames_external_id_columns_to_semantic_keys():
+def test_runner_column_map_exposes_base_brick_keys_for_composite_resolver_keys():
+    out = loop._runner_column_map(
+        {
+            "Zone_Temperature_Sensor|zone_temp": "ZoneTemp",
+            "Zone_Air_Flow_Sensor|zaf": "ZAF",
+        }
+    )
+    assert out["Zone_Temperature_Sensor|zone_temp"] == "ZoneTemp"
+    assert out["Zone_Temperature_Sensor"] == "ZoneTemp"
+    assert out["Zone_Temperature_Sensor|Zone_Temperature_Sensor"] == "ZoneTemp"
+
+
+def test_load_timeseries_for_site_keeps_external_id_columns():
     site_uuid = "11111111-1111-1111-1111-111111111111"
     stage = {"n": 0}
 
@@ -89,13 +101,13 @@ def test_load_timeseries_for_site_renames_external_id_columns_to_semantic_keys()
         )
 
     assert df is not None
-    assert "Zone_Temperature_Sensor" in df.columns
-    assert "Supply_Air_Temperature_Sensor" in df.columns
-    assert "ZoneTemp" not in df.columns
-    assert "SA-T" not in df.columns
+    assert "ZoneTemp" in df.columns
+    assert "SA-T" in df.columns
+    assert "Zone_Temperature_Sensor" not in df.columns
+    assert "Supply_Air_Temperature_Sensor" not in df.columns
 
 
-def test_load_timeseries_for_equipment_renames_external_id_columns_to_semantic_keys():
+def test_load_timeseries_for_equipment_keeps_external_id_columns():
     stage = {"n": 0}
 
     class FakeCursor:
@@ -150,10 +162,10 @@ def test_load_timeseries_for_equipment_renames_external_id_columns_to_semantic_k
             },
         )
     assert df is not None
-    assert "Zone_Temperature_Sensor" in df.columns
-    assert "Zone_Air_Flow_Sensor" in df.columns
-    assert "ZoneTemp" not in df.columns
-    assert "ZAF" not in df.columns
+    assert "ZoneTemp" in df.columns
+    assert "ZAF" in df.columns
+    assert "Zone_Temperature_Sensor" not in df.columns
+    assert "Zone_Air_Flow_Sensor" not in df.columns
 
 
 def test_log_missing_rule_inputs_non_strict_short_circuits_in_strict_mode(caplog):

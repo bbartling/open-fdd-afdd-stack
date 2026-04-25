@@ -140,6 +140,17 @@ Brick-semantic data model: **single export route** (BACnet discovery + DB points
 
 **Response:** `200 OK` — JSON array. Each row: `point_id` (null if unimported), `bacnet_device_id`, `object_identifier`, `object_name`, `site_id`, `site_name`, `equipment_id`, `equipment_name`, `external_id`, `brick_type`, `rule_input`, `unit`, **`polling`** (default false for unimported). Points to poll for the BACnet scraper = rows where **polling === true**.
 
+### GET /data-model/export/import-template
+
+**Import-safe template route:** Returns `{"points":[...], "equipment":[]}` in the same shape accepted by `PUT /data-model/import`.
+
+Use this for AI/agent workflows when you need a round-trip-safe payload. Unlike raw `/data-model/export`, this template excludes export-only context fields (for example `engineering`/`equipment_metadata` point mirrors) that are not accepted in `points[]` import rows.
+
+| Query param   | Type    | Required | Description |
+|---------------|---------|----------|-------------|
+| site_id       | string  | no       | Site UUID or name; omit for all sites |
+| bacnet_only   | boolean | no       | If true, include only rows with `bacnet_device_id` + `object_identifier` |
+
 ---
 
 ### PUT /data-model/import
@@ -159,6 +170,21 @@ Bulk create/update **points** and optionally update **equipment** feeds/fed_by. 
 **Response:** `200 OK` — e.g. `{"created": N, "updated": M, "total": ...}`
 
 **Validation failures (`422`)**: Response keeps the standard error envelope. For `PUT /data-model/import`, `error.message` includes the first failing path and reason, and `error.details.errors` includes full validation entries (at minimum `loc`, `msg`, `type`; additional Pydantic fields such as `url` may also be present).
+
+**Create contract:** if `point_id` is omitted, create rows must include `site_id`/`site_name`, `external_id`, `bacnet_device_id`, and `object_identifier` (or valid `modbus_config` path). Malformed create payloads fail with `4xx` (no silent success-with-warning).
+
+---
+
+### POST /data-model/reset
+
+Reset graph state and rewrite TTL.
+
+| Query param          | Type    | Default | Description |
+|----------------------|---------|---------|-------------|
+| clear_fault_history  | boolean | false   | Delete `fault_state`, `fault_results`, `fault_events` |
+| clear_model_db       | boolean | false   | **Bench-only destructive reset**: delete all `sites` (cascade removes equipment/points) before graph rebuild |
+
+Default reset behavior is **DB-backed graph reset** (BACnet/orphans removed; Brick repopulated from current DB rows). For a true clean-slate bench reset, use `clear_model_db=true`.
 
 ---
 

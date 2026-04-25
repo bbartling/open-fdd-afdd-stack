@@ -12,7 +12,8 @@
 # Optional (single-purpose):
 #   ./scripts/bootstrap.sh --install-docker     # attempt Docker install (Linux) then run
 #   ./scripts/bootstrap.sh --minimal            # DB + bacnet-server + bacnet-scraper only (add --with-grafana for Grafana)
-#   ./scripts/bootstrap.sh --verify             # health checks + ufw hints for 8080/tcp + 47808/udp (read-only; does not edit .env or recreate containers)
+#   ./scripts/bootstrap.sh --verify             # health checks + ufw hints + OpenClaw sibling-network diagnostics (read-only; does not edit .env or recreate containers)
+#   ./scripts/bootstrap.sh --build api fdd-loop mcp-rag --verify   # rebuild selected services, then run verify in same command
 #   ./scripts/bootstrap.sh --verify --verify-firewall-strict   # same, but exit 1 if ufw active and BACnet/gateway ports not ALLOW
 #   ./scripts/bootstrap.sh --test             # run tests: frontend (lint + typecheck + vitest), backend (pytest), Caddy validate; then exit. Does not run E2E/Selenium or long-running tests. Docker optional (skips Caddy validate if unavailable). OFDD_BOOTSTRAP_INSTALL_DEV=1 can auto-create .venv + pip install -e '.[dev]'.
 #   ./scripts/bootstrap.sh --update             # git pull this repo + diy-bacnet-server sibling, rebuild, restart (keeps DB)
@@ -38,7 +39,7 @@
 # Heavy ops example (pull, rebuild, verify, tests, app user, frontend volume reset, self-signed Caddy):
 #   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --caddy-self-signed
 #   printf '%s' 'asdf' | ./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --test --diy-bacnet-tests --user ben --password-stdin --frontend --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag  --enforce-network-default
-#   Standard HTTP lab (OT NIC): ./scripts/bootstrap.sh --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456
+#   Standard HTTP lab (OT NIC): ./scripts/bootstrap.sh --verify --bacnet-address 192.168.204.18/24:47808 --bacnet-instance 123456 --with-mcp-rag --enforce-network-default
 
 
 set -euo pipefail
@@ -231,7 +232,7 @@ Core:
   --with-mqtt-bridge        Start Mosquitto + wire BACnet2MQTT env (experimental; future remote/MQTT use—not core product yet)
   --with-mcp-rag            Include MCP RAG service (http://localhost:8090; retrieval over this repo docs + generated text + sparse-cloned upstream docs/ from open-fdd, diy-bacnet-server, easy-aso; see stack/mcp-rag/.vendor-docs/)
   --doctor                  Read-only diagnostics: Docker, Compose, Python, argon2-cffi, paths (no stack changes). Exit 1 if critical checks fail.
-  --verify                  Show running services + health checks + ufw hints for 8080/tcp and 47808/udp (read-only; add --verify-firewall-strict to fail closed)
+  --verify                  Show running services + health checks + ufw hints for 8080/tcp and 47808/udp; if OpenClaw gateway is running, also print sibling-network diagnostics + fix commands for openfdd_api:8000. Can be combined with --build/--build-all/--update.
   --verify --test           Verify services then run tests; then exit
   --test                    Run tests only: frontend (lint + typecheck + vitest), backend (pytest), Caddy validate; then exit (no E2E/Selenium). Docker is optional (Caddy validate skipped if unavailable). Env OFDD_BOOTSTRAP_INSTALL_DEV=1 auto-creates .venv and pip install -e '.[dev]' when pytest is missing.
   --update                  Git pull this AFDD stack repo + diy-bacnet-server (sibling), rebuild, restart (keeps DB)
@@ -1642,12 +1643,65 @@ verify_ufw_firewall_for_bacnet_lab() {
   fi
 }
 
+verify_openclaw_sibling_network() {
+  # Optional readiness check for sibling OpenClaw container bench setups.
+  # Non-fatal: prints actionable guidance when networking is not wired yet.
+  local shared_net="${OFDD_SHARED_DOCKER_NETWORK:-openfdd_shared}"
+  local openclaw_name=""
+  openclaw_name="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E '^openclaw-.*-gateway-[0-9]+$|^openclaw$' | head -1 || true)"
+
+  # Only run this section when OpenClaw gateway container is present.
+  [[ -n "$openclaw_name" ]] || return 0
+
+  echo ""
+  echo "=== OpenClaw sibling-container network check ==="
+  echo "Detected OpenClaw container: $openclaw_name"
+  echo "Shared network target: $shared_net"
+
+  if ! docker network inspect "$shared_net" >/dev/null 2>&1; then
+    echo "WARN OpenClaw network: Docker network '$shared_net' not found."
+    echo "     If using sibling-container testing, create/connect the expected shared network first."
+    return 0
+  fi
+
+  local openclaw_on_net=0 api_on_net=0
+  if docker network inspect "$shared_net" 2>/dev/null | grep -q "\"$openclaw_name\""; then
+    openclaw_on_net=1
+  fi
+  if docker network inspect "$shared_net" 2>/dev/null | grep -q "\"openfdd_api\""; then
+    api_on_net=1
+  fi
+
+  if [[ "$openclaw_on_net" -eq 1 ]] && [[ "$api_on_net" -eq 1 ]]; then
+    echo "OK   OpenClaw network: '$openclaw_name' and 'openfdd_api' are both attached to '$shared_net'."
+  else
+    echo "WARN OpenClaw network: missing attachment(s) on '$shared_net'."
+    [[ "$openclaw_on_net" -eq 1 ]] && echo "     - '$openclaw_name': attached" || echo "     - '$openclaw_name': missing"
+    [[ "$api_on_net" -eq 1 ]] && echo "     - 'openfdd_api': attached" || echo "     - 'openfdd_api': missing"
+    echo "     Fix:"
+    echo "       docker network connect $shared_net $openclaw_name || true"
+    echo "       docker network connect $shared_net openfdd_api || true"
+  fi
+
+  if docker exec "$openclaw_name" sh -lc "wget -qO- http://openfdd_api:8000/health >/dev/null" 2>/dev/null; then
+    echo "OK   OpenClaw -> API: http://openfdd_api:8000/health reachable from '$openclaw_name'."
+  else
+    echo "WARN OpenClaw -> API: http://openfdd_api:8000/health not reachable from '$openclaw_name'."
+    echo "     Probe manually:"
+    echo "       docker exec -it $openclaw_name sh -lc 'wget -qO- http://openfdd_api:8000/health || true'"
+    echo "     Fallback probe (if host alias works in this runtime):"
+    echo "       docker exec -it $openclaw_name sh -lc 'wget -qO- http://host.docker.internal:8000/health || true'"
+    echo "     This is usually Docker network/DNS wiring, not an app regression."
+  fi
+}
+
 verify() {
   local HOST_BACNET_OK=false
   echo "=== Services ==="
   docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | head -15
   echo ""
   verify_ufw_firewall_for_bacnet_lab
+  verify_openclaw_sibling_network
 
   if docker exec openfdd_timescale pg_isready -U postgres -d openfdd 2>/dev/null; then
     echo "DB: localhost:5432/openfdd (OK)"
@@ -2311,7 +2365,7 @@ fi
 # -----------------------------
 # Early exit modes
 # -----------------------------
-if $VERIFY_ONLY && ! $UPDATE_PULL_REBUILD; then
+if $VERIFY_ONLY && ! $UPDATE_PULL_REBUILD && ! $BUILD_ALL && [[ -z "$BUILD_SERVICES_STR" ]]; then
   check_prereqs
   verify
   if $VERIFY_CODE; then
@@ -2521,6 +2575,10 @@ if $BUILD_ALL; then
   $dc up -d
   bootstrap_compose_force_recreate_if_needed
   echo "Done. All containers rebuilt and restarted."
+  if $VERIFY_ONLY; then
+    echo ""
+    verify
+  fi
   exit 0
 fi
 
@@ -2544,6 +2602,9 @@ fi
 # --build SERVICE ...
 # -----------------------------
 if [[ -n "$BUILD_SERVICES_STR" ]]; then
+  if echo " $BUILD_SERVICES_STR " | grep -q " mcp-rag "; then
+    ensure_docs_text_and_rag_index
+  fi
   cd "$STACK_DIR"
   echo "=== Rebuilding and restarting: $BUILD_SERVICES_STR ==="
   $dc build $BUILD_SERVICES_STR
@@ -2556,6 +2617,10 @@ if [[ -n "$BUILD_SERVICES_STR" ]]; then
   echo "Done. Services restarted: $BUILD_SERVICES_STR"
   if $WITH_MQTT_BRIDGE; then
     echo "  MQTT:     localhost:1883 (experimental BACnet2MQTT; for future remote/MQTT workflows)"
+  fi
+  if $VERIFY_ONLY; then
+    echo ""
+    verify
   fi
   exit 0
 fi

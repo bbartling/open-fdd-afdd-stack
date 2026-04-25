@@ -29,6 +29,46 @@ Open-FDD uses Docker and Docker Compose to orchestrate and manage all platform s
 - **Git:** Install Git if needed, e.g. `sudo apt update && sudo apt install git`.
 - **Docker:** Follow the official guide to install Docker Engine (and Compose): [Install Docker Engine on Ubuntu](https://docs.docker.com/engine/install/ubuntu/).
 
+
+### Validate Hardware
+
+Before running the full Open-FDD stack, check the available disk, RAM, swap, and CPU resources on the machine.
+
+```bash
+printf '%s\n' "Current machine resources:" "Disk: $(df -h / | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free, " $5 " full"}')" "RAM: $(free -h | awk '/^Mem:/ {print $2 " total, " $7 " available"}')" "Swap: $(free -h | awk '/^Swap:/ {print $2 " total, " $3 " used"}')" "CPU: $(nproc) cores"
+````
+
+Example output:
+
+```text
+Current machine resources:
+Disk: 58G total, 21G used, 35G free, 38% full
+RAM: 7.9Gi total, 6.0Gi available
+Swap: 2.0Gi total, 0B used
+CPU: 4 cores
+```
+
+Minimum practical hardware:
+
+```text
+Disk: 60–80 GB free
+RAM: 8–16 GB
+CPU: 4 logical cores
+```
+
+Recommended hardware for running Open-FDD + OpenClaw + MCP/RAG together:
+
+```text
+Disk: 500 GB+ free recommended
+RAM: 32 GB recommended
+CPU: 8 logical cores recommended
+```
+
+The stack may run on smaller machines, but use caution. Docker builds, frontend builds, MCP/RAG services, database containers, and OpenClaw agents can consume disk and memory quickly.
+
+For lightweight testing, a Raspberry Pi 5 with 8 GB RAM and enough disk space may work well. For heavier workflows that include OpenClaw, MCP/RAG, full Docker rebuilds, frontend builds, and test runs, a larger workstation-class machine is strongly recommended.
+
+
 ### Prerequisites (Ubuntu / Debian-style)
 
 After Docker is installed, add your Linux user to the **`docker`** group so you can run `docker` without `sudo` (log out and back in, or use `newgrp`, for the group change to apply):
@@ -142,56 +182,13 @@ The `--with-mcp-rag` flag starts the internal MCP/RAG service on port `8090`.
 
 ---
 
-### Architecture (simplified)
+### OpenClaw and AI worker docs
 
-```text
-OpenClaw (AI Agent)
-        |
-        | HTTP (Docker internal network)
-        v
-MCP / RAG Service (openfdd_mcp_rag:8090)
-        |
-        v
-Open-FDD AFDD Stack (API + DB + BACnet)
-```
+OpenClaw runtime details, sibling-container networking, API auth patterns, worker prompts, and model-context/MCP workflows are maintained in docs:
 
-### OpenClaw execution boundaries (important)
-
-In many deployments, OpenClaw runs outside the Docker host shell and can only call exposed HTTP APIs.
-
-- OpenClaw **can** run API workflows (`/config`, `/sites`, `/data-model/*`, `/run-fdd`, analytics/download routes) when given the correct base URL and Bearer key.
-- OpenClaw **cannot** run host-local shell tasks like `./scripts/bootstrap.sh` unless it is granted host shell access.
-- If you need reset verification from OpenClaw-only mode, prefer API evidence and clearly separate:
-  - **API reset**: `POST /data-model/reset` (graph reset + stale active fault-state deactivation)
-  - **Full fault-history cleanup**: `POST /data-model/reset?clear_fault_history=true`
-  - **Host bootstrap reset path**: `./scripts/bootstrap.sh --reset-data` (calls the full cleanup endpoint above)
-
-For API-only agents, provide `OFDD_API_URL`/base URL and `OFDD_API_KEY` (Bearer) from `stack/.env`.
-
-### Open Claw Model Routing Prompt
-
-Just drop this prompt right into Open Claw—it’s helped me avoid hitting API limits. I think it encourages the framework to use simple, low-cost models for easier tasks, while reserving more advanced (and expensive) models only for the tasks that truly require deeper reasoning. Open Claw is currently being tested with the Open AI Codex subscription. 
-
-
-```text
-## Model Routing Policy
-When analyzing test results, classify each task before processing:
-SIMPLE (use primary model):
-- Pass/fail test results
-- HTTP status code errors (404, 500, timeout)
-- Missing UI elements or broken selectors
-- Test environment setup failures
-- Syntax errors or import failures
-COMPLEX (use thinking model)
-- Unexpected behavior that passed but shouldn't have
-- Race conditions or timing-dependent failures
-- Security vulnerabilities
-- Performance degradation patterns
-- Failures that span multiple components or files
-Default to SIMPLE unless the test result shows ambiguous or multi-layered behavior.
-Always classify first, then process. Never use the thinking model for a task that fits the SIMPLE list.
-
-```
+- [OpenClaw integration](docs/openclaw_integration.md)
+- [OpenClaw agent bootstrap](docs/howto/openclaw_agent_bootstrap.md)
+- [Operations testing plan](docs/operations/testing_plan.md)
 
 
 ---

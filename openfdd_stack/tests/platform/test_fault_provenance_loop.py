@@ -83,6 +83,59 @@ def test_results_with_provenance_keeps_fault_when_no_point_lookup_match():
     assert ev["fault_flag"] == "flatline_flag"
 
 
+def test_results_with_provenance_matches_composite_rule_input_keys():
+    df = pd.DataFrame(
+        [
+            {
+                "timestamp": datetime(2026, 4, 20, 12, 2, 0),
+                "ZoneTemp": 95.0,
+                "bad_sensor_flag": 1,
+            }
+        ]
+    )
+    rules = [
+        {
+            "name": "bad_sensor_check",
+            "flag": "bad_sensor_flag",
+            "inputs": {
+                "Zone_Temperature_Sensor|zone_temp": {
+                    "brick": "Zone_Temperature_Sensor"
+                }
+            },
+        }
+    ]
+    # Lookup keyed by external_id + base Brick symbol only.
+    point_lookup = {
+        "ZoneTemp": {
+            "point_id": "pt-zone",
+            "external_id": "ZoneTemp",
+            "object_identifier": "analog-input,1",
+            "object_name": "Zone Temp",
+        },
+        "Zone_Temperature_Sensor": {
+            "point_id": "pt-zone",
+            "external_id": "ZoneTemp",
+            "object_identifier": "analog-input,1",
+            "object_name": "Zone Temp",
+        },
+    }
+    out = _results_with_provenance(
+        df,
+        "site-1",
+        "VAV-1",
+        rules,
+        point_lookup,
+        timestamp_col="timestamp",
+    )
+    assert len(out) == 1
+    ev = out[0].evidence
+    assert isinstance(ev, dict)
+    assert ev["point_id"] == "pt-zone"
+    assert ev["external_id"] == "ZoneTemp"
+    assert ev["object_identifier"] == "analog-input,1"
+    assert ev["object_name"] == "Zone Temp"
+
+
 def _mock_conn_capture_execute_values():
     cur = MagicMock()
     conn = MagicMock()
@@ -207,3 +260,48 @@ def test_point_lookup_for_site_includes_semantic_and_external_keys():
     assert "MA-T" in lookup
     assert "Mixed_Air_Temperature_Sensor" in lookup
     assert lookup["MA-T"]["point_id"] == "pt-456"
+
+
+def test_point_lookup_for_site_includes_composite_base_key_variants():
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query, _params=None):
+            return None
+
+        def fetchall(self):
+            return [
+                {
+                    "id": "pt-zone",
+                    "external_id": "ZoneTemp",
+                    "fdd_input": "zone_temp",
+                    "bacnet_device_id": "3456789",
+                    "object_identifier": "analog-input,1",
+                    "object_name": "Zone Temp",
+                }
+            ]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    with patch("openfdd_stack.platform.loop.get_conn", return_value=_Conn()):
+        lookup = _point_lookup_for_site(
+            site_id="site-1",
+            column_map={"Zone_Temperature_Sensor|zone_temp": "ZoneTemp"},
+        )
+
+    assert "ZoneTemp" in lookup
+    assert "Zone_Temperature_Sensor|zone_temp" in lookup
+    assert "Zone_Temperature_Sensor" in lookup
+    assert "Zone_Temperature_Sensor|Zone_Temperature_Sensor" in lookup

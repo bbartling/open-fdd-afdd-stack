@@ -94,6 +94,9 @@ services:
         condition: service_healthy
       bacnet-server:
         condition: service_started
+    networks:
+      - default
+      - shared
     restart: unless-stopped
     logging:
       driver: json-file
@@ -120,6 +123,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - default
+      - shared
     restart: unless-stopped
     logging:
       driver: json-file
@@ -143,6 +149,9 @@ services:
     volumes:
       - openfdd_db:/var/lib/postgresql/data
       - ./sql:/docker-entrypoint-initdb.d
+    networks:
+      - default
+      - shared
     logging:
       driver: json-file
       options: *log-opts
@@ -169,6 +178,9 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - default
+      - shared
     logging:
       driver: json-file
       options: *log-opts
@@ -195,6 +207,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - default
+      - shared
     restart: unless-stopped
     logging:
       driver: json-file
@@ -215,6 +230,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - default
+      - shared
     restart: unless-stopped
     logging:
       driver: json-file
@@ -269,6 +287,7 @@ services:
         condition: service_healthy
     networks:
       - default
+      - shared
     restart: unless-stopped
     logging:
       driver: json-file
@@ -392,6 +411,9 @@ services:
     container_name: openfdd_mosquitto
     ports:
       - "1883:1883"
+    networks:
+      - default
+      - shared
     restart: unless-stopped
     logging:
       driver: json-file

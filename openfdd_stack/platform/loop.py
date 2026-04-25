@@ -46,14 +46,24 @@ def _runner_column_map(column_map: dict[str, str]) -> dict[str, str]:
     The TTL resolver provides logical->external_id. After DataFrame columns are
     renamed to semantic/logical names, remap values to those semantic columns.
     """
-    external_to_semantic = _external_to_semantic_column_map(column_map)
     out: dict[str, str] = {}
     for logical_key, external_label in (column_map or {}).items():
         lk = str(logical_key or "").strip()
         ev = str(external_label or "").strip()
         if not lk or not ev:
             continue
-        out[lk] = external_to_semantic.get(ev, ev)
+        # Keep canonical resolver mapping (logical -> external_id label).
+        out[lk] = ev
+        # When resolver disambiguates as BrickClass|rule_input, also expose:
+        # - BrickClass -> external_id (first wins)
+        # - BrickClass|BrickClass -> external_id (matches open-fdd runner lookup order)
+        if "|" in lk:
+            brick_class = lk.split("|", 1)[0].strip()
+            if brick_class and brick_class not in out:
+                out[brick_class] = ev
+            composite_self = f"{brick_class}|{brick_class}" if brick_class else ""
+            if composite_self and composite_self not in out:
+                out[composite_self] = ev
     return out
 
 
@@ -179,9 +189,6 @@ def load_timeseries_for_site(
     df = pd.DataFrame(rows)
     df = df.pivot_table(index="ts", columns="external_id", values="value")
     df = df.reset_index()
-    external_to_semantic = _external_to_semantic_column_map(column_map)
-    csv_cols = {ext: external_to_semantic.get(ext, ext) for ext in ext_ids}
-    df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
 
@@ -237,9 +244,6 @@ def load_timeseries_for_equipment(
     df = pd.DataFrame(rows)
     df = df.pivot_table(index="ts", columns="external_id", values="value")
     df = df.reset_index()
-    external_to_semantic = _external_to_semantic_column_map(column_map)
-    csv_cols = {ext: external_to_semantic.get(ext, ext) for ext in ext_ids}
-    df = df.rename(columns=csv_cols)
     df["timestamp"] = pd.to_datetime(df["ts"])
     return df
 
@@ -280,7 +284,16 @@ def _point_lookup_for_equipment(
             "object_identifier": str(r.get("object_identifier") or "").strip(),
             "object_name": str(r.get("object_name") or "").strip(),
         }
-        for key in (external_id, fdd_input, mapped_key, semantic_key):
+        lookup_keys = [external_id, fdd_input, mapped_key, semantic_key]
+        # Resolver may return composite logical keys (e.g. BrickClass|rule_input).
+        # Add base Brick variants so provenance can match rule inputs consistently.
+        for candidate in (mapped_key, semantic_key):
+            if "|" in candidate:
+                base = candidate.split("|", 1)[0].strip()
+                if base:
+                    lookup_keys.append(base)
+                    lookup_keys.append(f"{base}|{base}")
+        for key in lookup_keys:
             if key and key not in lookup:
                 lookup[key] = meta
     return lookup
@@ -319,7 +332,16 @@ def _point_lookup_for_site(
             "object_identifier": str(r.get("object_identifier") or "").strip(),
             "object_name": str(r.get("object_name") or "").strip(),
         }
-        for key in (external_id, fdd_input, mapped_key, semantic_key):
+        lookup_keys = [external_id, fdd_input, mapped_key, semantic_key]
+        # Resolver may return composite logical keys (e.g. BrickClass|rule_input).
+        # Add base Brick variants so provenance can match rule inputs consistently.
+        for candidate in (mapped_key, semantic_key):
+            if "|" in candidate:
+                base = candidate.split("|", 1)[0].strip()
+                if base:
+                    lookup_keys.append(base)
+                    lookup_keys.append(f"{base}|{base}")
+        for key in lookup_keys:
             if key and key not in lookup:
                 lookup[key] = meta
     return lookup
@@ -369,11 +391,34 @@ def _results_with_provenance(
             rule = rule_by_flag.get(col, {})
             inputs = rule.get("inputs") if isinstance(rule, dict) else {}
             input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
-            candidates = [
-                point_lookup[k]
-                for k in input_keys
-                if isinstance(k, str) and k in point_lookup
-            ]
+            candidate_keys: list[str] = []
+            for key in input_keys:
+                if not isinstance(key, str):
+                    continue
+                k = key.strip()
+                if not k:
+                    continue
+                candidate_keys.append(k)
+                if "|" in k:
+                    base = k.split("|", 1)[0].strip()
+                    if base:
+                        candidate_keys.append(base)
+                        candidate_keys.append(f"{base}|{base}")
+                spec = inputs.get(key) if isinstance(inputs, dict) else None
+                if isinstance(spec, dict):
+                    brick = str(spec.get("brick") or "").strip()
+                    if brick:
+                        candidate_keys.append(brick)
+                        candidate_keys.append(f"{brick}|{brick}")
+            seen: set[str] = set()
+            candidates = []
+            for ck in candidate_keys:
+                if ck in seen:
+                    continue
+                seen.add(ck)
+                meta = point_lookup.get(ck)
+                if meta:
+                    candidates.append(meta)
             primary = candidates[0] if candidates else None
             evidence = {
                 "rule_name": rule.get("name") if isinstance(rule, dict) else None,

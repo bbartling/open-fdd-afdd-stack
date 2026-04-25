@@ -111,6 +111,46 @@ Bench and helper scripts treat Open‑FDD like any other REST client: they read 
 
 ---
 
+## 1e2) OpenClaw as a sibling Docker container on the same host
+
+For local bench testing, OpenClaw commonly runs as a container sibling to the Open-FDD stack. In this mode, OpenClaw should use HTTP endpoints and never rely on host file paths in prompts.
+
+**Preferred base URLs from OpenClaw container:**
+
+1. **Direct API:** `http://host.docker.internal:8000`
+2. **Via Caddy route:** `http://host.docker.internal/api`
+3. **Same Docker network (if attached):** `http://openfdd_api:8000` (or `http://api:8000` if available)
+
+**Usage rules for sibling-container mode:**
+
+- Do not pass local paths like `/home/ben/open-fdd-afdd-stack/...` into OpenClaw tasks.
+- Use API evidence for validation (`/health`, `/config`, `/data-model/*`, `/run-fdd`, `/faults/*`).
+- Keep auth automation on API key, and keep browser login/JWT as a separate human UI flow.
+- If `host.docker.internal` is unavailable in a specific Linux Docker setup, connect OpenClaw to the same network as Open-FDD and use service DNS (`openfdd_api`).
+
+**Minimum connectivity smoke check:**
+
+1. `GET /health`
+2. `GET /config`
+3. `GET /data-model/export`
+
+If these pass with auth, OpenClaw can run the full discovery/modeling/fault-validation workflows.
+
+**Host-side verify helper (recommended before overnight runs):**
+
+- `./scripts/bootstrap.sh --verify`
+
+The verify output now includes an OpenClaw sibling-network section that:
+
+- detects the OpenClaw gateway container
+- checks whether both OpenClaw and `openfdd_api` are attached to `OFDD_SHARED_DOCKER_NETWORK` (default `openfdd_shared`)
+- probes `http://openfdd_api:8000/health` from inside OpenClaw
+- prints exact `docker network connect ...` and `docker exec ... wget ...` commands when wiring is missing
+
+This check is diagnostic/read-only; it does not change network attachments by itself.
+
+---
+
 ## 1f) AI operator handoff (`stack/.env`) for MCP/HTTP workers
 
 For AI-assisted data-modeling workers (OpenClaw or MCP clients), the fastest reliable startup is:
@@ -229,7 +269,34 @@ Fault tuning task:
 
 ---
 
-## 5) Recommended “context window” behavior
+## 5) Model routing policy prompt (cost/latency guardrail)
+
+Use this policy in OpenClaw when you want low-cost triage by default and deeper models only for genuinely ambiguous multi-component failures.
+
+```text
+## Model Routing Policy
+When analyzing test results, classify each task before processing:
+SIMPLE (use primary model):
+- Pass/fail test results
+- HTTP status code errors (404, 500, timeout)
+- Missing UI elements or broken selectors
+- Test environment setup failures
+- Syntax errors or import failures
+COMPLEX (use thinking model):
+- Unexpected behavior that passed but shouldn't have
+- Race conditions or timing-dependent failures
+- Security vulnerabilities
+- Performance degradation patterns
+- Failures that span multiple components or files
+Default to SIMPLE unless the test result shows ambiguous or multi-layered behavior.
+Always classify first, then process. Never use the thinking model for a task that fits the SIMPLE list.
+```
+
+For Open-FDD bench runs, pair this with the sibling-container preflight in section **1e2** and the phase-based test plan in [`docs/operations/testing_plan.md`](operations/testing_plan.md).
+
+---
+
+## 6) Recommended “context window” behavior
 
 For larger exports and/or multi-step workers:
 

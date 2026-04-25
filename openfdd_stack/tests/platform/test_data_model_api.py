@@ -131,6 +131,51 @@ def test_data_model_export_returns_point_refs():
     assert data[0]["rule_input"] == "sat"
 
 
+def test_data_model_export_import_template_is_import_safe_shape():
+    site_id = uuid4()
+    point_id = uuid4()
+    rows = [
+        {
+            "id": point_id,
+            "site_id": site_id,
+            "site_name": "Default",
+            "external_id": "ZoneTemp",
+            "equipment_id": None,
+            "equipment_name": "VAV-1",
+            "equipment_metadata": {"engineering": {"rated_airflow_cfm": 1200}},
+            "brick_type": "Zone_Air_Temperature_Sensor",
+            "fdd_input": "zt",
+            "unit": "degF",
+            "bacnet_device_id": "3456789",
+            "object_identifier": "analog-input,1",
+            "object_name": "ZoneTemp",
+            "polling": True,
+            "modbus_config": None,
+        }
+    ]
+    with (
+        patch(
+            "openfdd_stack.platform.api.data_model.serialize_to_ttl",
+            return_value="@prefix brick: <https://brickschema.org/schema/Brick#> .\n",
+        ),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn",
+            side_effect=_mock_get_conn_sequence([], rows),
+        ),
+    ):
+        r = client.get("/data-model/export/import-template")
+    assert r.status_code == 200
+    body = r.json()
+    assert "points" in body
+    assert body["equipment"] == []
+    row = body["points"][0]
+    assert row["point_id"] == str(point_id)
+    assert row["external_id"] == "ZoneTemp"
+    assert row["rule_input"] == "zt"
+    assert "engineering" not in row
+    assert "equipment_metadata" not in row
+
+
 def test_data_model_export_includes_bacnet_refs():
     """Export includes bacnet_device_id, object_identifier, object_name for LLM/AI tagging workflow."""
     site_id = uuid4()
@@ -669,6 +714,27 @@ def test_data_model_import_missing_site_returns_400():
     assert "add the site" in detail.lower() or "try again" in detail.lower()
 
 
+def test_data_model_import_missing_create_fields_fails_hard_422():
+    existing_site_id = uuid4()
+    body = {
+        "points": [
+            {
+                "site_id": str(existing_site_id),
+                "external_id": "SA-T",
+                # missing bacnet_device_id + object_identifier for create
+            }
+        ]
+    }
+    with patch(
+        "openfdd_stack.platform.api.data_model.get_conn",
+        side_effect=lambda: _mock_conn_with_cursor([{"id": existing_site_id}]),
+    ):
+        r = client.put("/data-model/import", json=body)
+    assert r.status_code == 422
+    detail = (r.json().get("error") or {}).get("message", "") or str(r.json())
+    assert "Invalid create payload" in detail
+
+
 def test_data_model_import_infers_payload_site_for_null_rows():
     """When payload has one explicit site_id, rows with null site_id should use that site."""
     inferred_site_id = uuid4()
@@ -987,3 +1053,43 @@ def test_data_model_reset_with_clear_fault_history_deletes_fault_tables():
     assert any("DELETE FROM fault_results" in sql for sql in execute_calls)
     assert any("DELETE FROM fault_state" in sql for sql in execute_calls)
     conn.commit.assert_called_once()
+
+
+def test_data_model_reset_with_clear_model_db_deletes_sites_before_graph_reset():
+    execute_calls: list[str] = []
+    rowcounts = iter([7, 2])  # DELETE sites, then fault_state deactivation
+    cursor = MagicMock()
+
+    def _capture_execute(sql, params=None):
+        execute_calls.append(sql)
+        cursor.rowcount = next(rowcounts)
+
+    cursor.execute = MagicMock(side_effect=_capture_execute)
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
+    conn.commit = MagicMock()
+
+    with (
+        patch("openfdd_stack.platform.api.data_model.reset_graph_to_db_only"),
+        patch("openfdd_stack.platform.api.data_model.get_conn", return_value=conn),
+        patch(
+            "openfdd_stack.platform.api.data_model.write_ttl_to_file",
+            return_value=(True, None),
+        ),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_serialization_status",
+            return_value={"graph_serialization": {"ok": True}},
+        ),
+    ):
+        r = client.post("/data-model/reset?clear_model_db=true")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["cleanup"]["sites_deleted"] == 7
+    assert body["cleanup"]["fault_state_deactivated"] == 2
+    assert "destructive model wipe" in body["message"]
+    assert any("DELETE FROM sites" in sql for sql in execute_calls)

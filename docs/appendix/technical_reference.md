@@ -36,7 +36,7 @@ open-fdd/
 │   └── caddy/             # Caddy only: [`stack/caddy/Caddyfile`](../../stack/caddy/Caddyfile) (minimal rev proxy; hardening TBD — [Security](../security))
 ├── config/                # data_model.ttl (Brick + BACnet + platform config)
 ├── scripts/               # bootstrap.sh; smoke_bacnet_api_to_gateway.sh (API→gateway); fake_*_faults.py
-├── openfdd_stack/platform/drivers/  # run_weather_fetch, run_rule_loop, run_host_stats, trigger_fdd_run, run_bacnet_scrape
+├── openfdd_stack/platform/drivers/  # run_weather_fetch, run_rule_loop, run_host_stats, trigger_fdd_run, run_bacnet_scrape, run_onboard_scrape
 └── examples/              # cloud_export, run_all_rules_brick, etc.
 ```
 
@@ -87,7 +87,7 @@ Used to build the PUT /config body at bootstrap; thereafter config is in the gra
 | `OFDD_BACNET_SCRAPE_INTERVAL_MIN` | 5 | Scrape interval (minutes). |
 | `OFDD_OPEN_METEO_*` | (see Configuration) | enabled, interval_hours, latitude, longitude, timezone, days_back, site_id. |
 | `OFDD_ONBOARD_API_KEY` | — | Onboard API key (header `X-OB-Api`). Kept in env; do not persist in graph. |
-| `OFDD_ONBOARD_*` | (see Configuration) | enabled, api_base_url, building_ids, scrape_interval_min, backfill_start, backfill_end, site_id_strategy, create_points. |
+| `OFDD_ONBOARD_*` | (see Configuration) | enabled, api_base_url, building_ids (IDs and/or names), scrape_interval_min (default 180), backfill_start, optional backfill_end, site_id_strategy, create_points. |
 | `OFDD_GRAPH_SYNC_INTERVAL_MIN` | 5 | Graph sync interval (also in graph). |
 
 **Optional:** `OFDD_ENV_FILE` ([Configuration](../configuration)).
@@ -122,12 +122,12 @@ With DB and API reachable and `OFDD_ONBOARD_API_KEY` set:
 - **One shot:** `python -m openfdd_stack.platform.drivers.run_onboard_scrape`
 - **Loop:** add `--loop` (uses `onboard_scrape_interval_min` from GET `/config` or env fallback).
 
-**Backfill then incremental:** set `OFDD_ONBOARD_BACKFILL_START` and `OFDD_ONBOARD_BACKFILL_END` once, then the driver records progress and continues interval polling.
+**Rolling catch-up:** set `OFDD_ONBOARD_BACKFILL_START` once (optional `OFDD_ONBOARD_BACKFILL_END` cap). The driver advances from checkpoint/floor toward now in interval-sized windows and continues from last checkpoint on each run.
 
 **Troubleshooting scripts:**
 
-- `python scripts/onboard_list_metadata.py --building-ids 66`
-- `python scripts/onboard_backfill_smoke.py --building-ids 66 --backfill-start 2021-05-01T08:00:00Z --backfill-end 2021-05-01T09:00:00Z`
+- `python scripts/onboard_list_metadata.py --building "Office Building"`
+- `python scripts/onboard_backfill_smoke.py --building "Office Building" --backfill-start 2026-04-01T00:00:00Z`
 
 ---
 
@@ -195,7 +195,7 @@ Schema is defined in **`stack/sql/`** (migrations **001–016**). Idempotent; bo
 
 ## LLM tagging workflow
 
-1. **Export** — GET `/data-model/export`.
+1. **Export** — GET `/data-model/export/import-template`.
 2. **Clean** — Keep only points to tag and poll.
 3. **Tag with LLM** — Full canonical prompt: [LLM workflow — copy/paste template](../modeling/llm_workflow#copy-paste-prompt-template-recommended); overview in [AI-assisted tagging](../modeling/ai_assisted_tagging). The prompt is **fault-first**: gather which faults/rules will run (prefer **YAML**) before final **polling** decisions, or stay conservative. It also requires **equipment_type** (Brick **1.4** equipment class local names) aligned with **Data Model Testing** SPARQL presets — see `frontend/src/data/brick-1.4-query-class-allowlist.ts` and `data-model-testing-queries.brick.test.ts`.
 4. **Import** — PUT /data-model/import with `points` and optional `equipment`. Set `polling` false on points that should not be scraped.

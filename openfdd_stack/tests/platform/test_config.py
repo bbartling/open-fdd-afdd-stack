@@ -140,6 +140,10 @@ def test_default_platform_config_includes_onboard_keys():
     assert "onboard_api_base_url" in DEFAULT_PLATFORM_CONFIG
     assert "onboard_building_ids" in DEFAULT_PLATFORM_CONFIG
     assert "onboard_scrape_interval_min" in DEFAULT_PLATFORM_CONFIG
+    assert "onboard_backfill_start" in DEFAULT_PLATFORM_CONFIG
+    assert "onboard_backfill_end" in DEFAULT_PLATFORM_CONFIG
+    assert "onboard_site_id_strategy" in DEFAULT_PLATFORM_CONFIG
+    assert "onboard_create_points" in DEFAULT_PLATFORM_CONFIG
 
 
 def test_config_display_preserves_zero_rule_interval():

@@ -11,9 +11,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from openfdd_stack.platform.config import get_platform_settings
 from openfdd_stack.platform.drivers.onboard import (
@@ -56,8 +53,9 @@ def _fetch_platform_config_cached(log: logging.Logger, ttl_sec: int = 30) -> dic
     if now - ts < ttl_sec:
         return _CONFIG_CACHE["cfg"]  # type: ignore[return-value]
     cfg = _fetch_platform_config(log)
-    _CONFIG_CACHE["ts"] = now
-    _CONFIG_CACHE["cfg"] = cfg
+    if cfg is not None:
+        _CONFIG_CACHE["ts"] = now
+        _CONFIG_CACHE["cfg"] = cfg
     return cfg
 
 
@@ -110,13 +108,23 @@ def main() -> int:
         building_ids_raw = str(
             _cfg_value(cfg, "onboard_building_ids", settings.onboard_building_ids)
         )
-        interval_min = int(
-            _cfg_value(
-                cfg, "onboard_scrape_interval_min", settings.onboard_scrape_interval_min
-            )
+        interval_raw = _cfg_value(
+            cfg, "onboard_scrape_interval_min", settings.onboard_scrape_interval_min
         )
+        try:
+            interval_min = int(interval_raw)
+        except (ValueError, TypeError):
+            interval_min = settings.onboard_scrape_interval_min
+            log.warning(
+                "Invalid onboard_scrape_interval_min=%r; using default %s",
+                interval_raw,
+                interval_min,
+            )
         backfill_start = parse_iso_ts(
             _cfg_value(cfg, "onboard_backfill_start", settings.onboard_backfill_start)
+        )
+        backfill_end = parse_iso_ts(
+            _cfg_value(cfg, "onboard_backfill_end", settings.onboard_backfill_end)
         )
         site_id_strategy = str(
             _cfg_value(
@@ -150,6 +158,7 @@ def main() -> int:
                 building_filters=building_filters,
                 backfill_start=backfill_start,
                 scrape_interval_min=interval_min,
+                backfill_end=backfill_end,
                 site_id_strategy=site_id_strategy,
                 create_points=create_points,
                 default_site_id=default_site_id,

@@ -196,13 +196,14 @@ Configure via `PUT /config` (non-secret keys) plus env secret:
 
 - `onboard_enabled`
 - `onboard_api_base_url`
-- `onboard_building_ids` (CSV or JSON array string)
+- `onboard_building_ids` (CSV or JSON array string; IDs and/or names, e.g. `66,Office Building`)
 - `onboard_scrape_interval_min`
-- `onboard_backfill_start` / `onboard_backfill_end` (ISO timestamps)
+- `onboard_backfill_start` (ISO timestamp floor for rolling catch-up)
+- `onboard_backfill_end` (optional cap; usually omitted)
 - `onboard_site_id_strategy` (`default` or `onboard-building-id`)
 - `onboard_create_points`
 
-Keep `OFDD_ONBOARD_API_KEY` in env (not persisted in graph). When both backfill bounds are set, the driver performs one backfill window, stores cursor state, then continues incremental polling.
+Keep `OFDD_ONBOARD_API_KEY` in env (not persisted in graph). The driver uses a rolling catch-up strategy: each run ingests from checkpoint (or `onboard_backfill_start`) toward now in interval-sized batches, then advances checkpoint state.
 
 ---
 

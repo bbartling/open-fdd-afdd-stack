@@ -85,11 +85,11 @@ See [LLM workflow (export + rules + validate → import)](llm_workflow) for the 
 
 ## External agent integration (Open‑Claw or any OpenAI-compatible LLM)
 
-**Where it runs:** Outside Open‑FDD (in your external LLM/Open‑Claw environment). Open‑FDD stays the single source of truth; your agent orchestrates `GET /data-model/export` → LLM tagging → `PUT /data-model/import`.
+**Where it runs:** Outside Open‑FDD (in your external LLM/Open‑Claw environment). Open‑FDD stays the single source of truth; your agent orchestrates `GET /data-model/export/import-template` → LLM tagging → `PUT /data-model/import`.
 
-**How it’s invoked:** Your external agent calls `GET /data-model/export` (optionally with a site filter), tags the export via Open‑Claw (OpenAI-compatible) using the canonical prompt, then imports validated JSON with `PUT /data-model/import`. If validation fails, include the error text and retry (prompt chaining).
+**How it’s invoked:** Your external agent calls `GET /data-model/export/import-template` (optionally with a site filter), tags the export via Open‑Claw (OpenAI-compatible) using the canonical prompt, then imports validated JSON with `PUT /data-model/import`. If validation fails, include the error text and retry (prompt chaining).
 
-**What the agent does:** It uses the same API endpoints as the manual process: `GET /data-model/export` (optionally filtered by site) → LLM tagging using the canonical prompt → validate that the returned JSON matches Open‑FDD’s import schema → `PUT /data-model/import` (or return JSON for the engineer to import).
+**What the agent does:** It uses the same API endpoints as the manual process: `GET /data-model/export/import-template` (optionally filtered by site) → LLM tagging using the canonical prompt → validate that the returned JSON matches Open‑FDD’s import schema → `PUT /data-model/import` (or return JSON for the engineer to import).
 
 ---
 
@@ -97,7 +97,7 @@ See [LLM workflow (export + rules + validate → import)](llm_workflow) for the 
 
 The agent is typically **not** a long-lived process; your external loop exports the model, tags it, validates the output, and retries when needed:
 
-1. **Export** — Call `GET /data-model/export` (optionally filtered by site) and send the export JSON to your agent.
+1. **Export** — Call `GET /data-model/export/import-template` (optionally filtered by site) and send the export JSON to your agent.
 2. **System prompt** — Use the full tagging instructions (this page + Technical reference, or your local `pdf/canonical_llm_prompt.txt` if you maintain one) as the Open‑Claw/OpenAI-compatible **system** prompt.
 3. **User message** — Send the export JSON as the user message. Optionally prepend any engineer description of feeds/fed_by topology and assumptions so the LLM can choose correct Brick types and relationships.
 4. **LLM call** — Call your Open‑Claw/OpenAI-compatible LLM once (for typical payloads). For very large exports, your agent may split into chunks and merge results. Request JSON output (for example with `response_format={"type": "json_object"}`).
@@ -113,7 +113,7 @@ So the agent uses **retry** with **prompt chaining**: keep the same export/rules
 
 ## Automating tagging (external agents)
 
-1. Call `GET /data-model/export` to get the export JSON (optionally with `?site_id=...`).
+1. Call `GET /data-model/export/import-template` to get the export JSON (optionally with `?site_id=...`).
 2. Fetch Open‑FDD documentation context for the LLM: `GET /model-context/docs` (use `query=...` to retrieve relevant sections).
 3. Prompt/tag with Open‑Claw (OpenAI-compatible) to produce import JSON that matches the Open‑FDD schema.
 4. Validate and import:
@@ -143,7 +143,7 @@ it means a **UUID field** holds a human-readable value (often the site name was 
 
 Human fix (pick the path that matches your row shape):
 
-1. **Preferred:** Replace the bad value with the **real site UUID** from `GET /data-model/export` or `GET /sites` (same site the row belongs to). This is always safe for **updates** (`point_id` set) and for **creates**, and it keeps **name-based** `equipment[]` rows valid — those rows still **require** a proper `site_id` UUID alongside `equipment_name` / `feeds` / `fed_by`.
+1. **Preferred:** Replace the bad value with the **real site UUID** from `GET /data-model/export/import-template` or `GET /sites` (same site the row belongs to). This is always safe for **updates** (`point_id` set) and for **creates**, and it keeps **name-based** `equipment[]` rows valid — those rows still **require** a proper `site_id` UUID alongside `equipment_name` / `feeds` / `fed_by`.
 2. **Creates only (`point_id` omitted):** If the backend should resolve the site by name, you may set `site_id` to `null` (or remove the key) **and** set `site_name` to an existing site name (see import logic in the API). Do **not** use this as a blanket fix for every row: any row that uses **equipment by name** must keep a valid `site_id` UUID.
 3. **Bad equipment or point UUIDs:** If the error is about `point_id` or `equipment_id`, remove or replace only those fields with IDs from your DB/export — don’t strip `site_id` from unrelated rows.
 

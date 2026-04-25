@@ -100,11 +100,84 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
     monkeypatch.setattr(onboard, "OnboardClient", _FakeClient)
     monkeypatch.setattr(onboard, "get_conn", lambda: _DummyConn())
     monkeypatch.setattr(onboard, "resolve_site_uuid", lambda *_args, **_kwargs: uuid4())
-    monkeypatch.setattr(onboard, "_ensure_state_table", lambda _cur: None)
     monkeypatch.setattr(
         onboard,
         "_load_state",
         lambda _cur, _key: {"state_key": "onboard:66", "backfill_done": False, "last_poll_end": None},
+    )
+    monkeypatch.setattr(
+        onboard,
+        "_save_state",
+        lambda _cur, key, backfill_done, last_poll_end: save_calls.append(
+            (key, backfill_done, last_poll_end)
+        ),
+    )
+    monkeypatch.setattr(
+        onboard, "_window_chunks", lambda _s, _e, step_minutes=180: [(now_start, now_end)]
+    )
+    monkeypatch.setattr(onboard, "_upsert_points_for_building", lambda *_args, **_kwargs: ({101: uuid4()}, 1))
+    monkeypatch.setattr(
+        onboard,
+        "_insert_timeseries_rows",
+        lambda _cur, rows: insert_calls.append(len(rows)) or len(rows),
+    )
+    summary = onboard.run_onboard_ingest_once(
+        log=type("L", (), {"info": lambda *a, **k: None, "warning": lambda *a, **k: None})(),
+        base_url="https://api.onboarddata.io",
+        api_key="test-key",
+        building_filters=["Office Building"],
+        backfill_start=now_start,
+        scrape_interval_min=180,
+        site_id_strategy="onboard-building-id",
+        create_points=True,
+    )
+    assert summary["buildings"] == 1
+    assert summary["points_seen"] == 1
+    assert summary["rows_inserted"] >= 1
+    assert insert_calls
+    assert save_calls and save_calls[0][1] is True
+
+
+def test_run_onboard_ingest_once_runs_incremental_after_backfill(monkeypatch):
+    building = {"id": 66, "name": "Example Building"}
+    now_start = datetime(2021, 5, 1, 8, tzinfo=timezone.utc)
+    now_end = datetime(2021, 5, 1, 10, tzinfo=timezone.utc)
+    save_calls: list[tuple] = []
+    insert_calls: list[int] = []
+
+    class _FakeClient:
+        def __init__(self, base_url: str, api_key: str):
+            self.base_url = base_url
+            self.api_key = api_key
+
+        def get_buildings(self, building_filters):
+            assert building_filters == ["Office Building"]
+            return [building]
+
+        def get_points(self, building_id):
+            assert building_id == 66
+            return [{"id": 101, "topic": "onboard/topic/101"}]
+
+        def query_v2(self, _start, _end, _point_ids):
+            return [
+                {
+                    "point_id": 101,
+                    "columns": ["time", "raw", "F"],
+                    "values": [["2021-05-01T08:00:01Z", "61.5", 61.5]],
+                }
+            ]
+
+    monkeypatch.setattr(onboard, "OnboardClient", _FakeClient)
+    monkeypatch.setattr(onboard, "get_conn", lambda: _DummyConn())
+    monkeypatch.setattr(onboard, "resolve_site_uuid", lambda *_args, **_kwargs: uuid4())
+    monkeypatch.setattr(
+        onboard,
+        "_load_state",
+        lambda _cur, _key: {
+            "state_key": "onboard:66",
+            "backfill_done": True,
+            "last_poll_end": now_start,
+        },
     )
     monkeypatch.setattr(
         onboard,

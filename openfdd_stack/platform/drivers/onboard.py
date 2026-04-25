@@ -138,19 +138,6 @@ class OnboardClient:
         return data if isinstance(data, list) else []
 
 
-def _ensure_state_table(cur) -> None:
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS onboard_ingest_state (
-            state_key text PRIMARY KEY,
-            backfill_done boolean NOT NULL DEFAULT FALSE,
-            last_poll_end timestamptz,
-            updated_at timestamptz NOT NULL DEFAULT now()
-        )
-        """
-    )
-
-
 def _load_state(cur, state_key: str) -> dict[str, Any]:
     cur.execute(
         "SELECT state_key, backfill_done, last_poll_end FROM onboard_ingest_state WHERE state_key=%s",
@@ -315,6 +302,7 @@ def run_onboard_ingest_once(
     building_filters: list[str],
     backfill_start: datetime | None,
     scrape_interval_min: int,
+    backfill_end: datetime | None = None,
     site_id_strategy: str,
     create_points: bool,
     default_site_id: str = "default",
@@ -327,60 +315,79 @@ def run_onboard_ingest_once(
     now_utc = datetime.now(timezone.utc)
 
     with get_conn() as conn:
-        with conn.cursor() as cur:
-            _ensure_state_table(cur)
-            for building in buildings:
-                building_id = int(building["id"])
-                state_key = f"onboard:{building_id}"
-                state = _load_state(cur, state_key)
-                points = client.get_points(building_id)
-                summary["points_seen"] += len(points)
+        for building in buildings:
+            try:
+                with conn.cursor() as cur:
+                    building_id = int(building["id"])
+                    state_key = f"onboard:{building_id}"
+                    state = _load_state(cur, state_key)
+                    points = client.get_points(building_id)
+                    summary["points_seen"] += len(points)
 
-                site_key = _site_key_for_building(building, site_id_strategy, default_site_id)
-                site_uuid = resolve_site_uuid(site_key, create_if_empty=True)
-                if site_uuid is None:
-                    log.warning("Skipping building %s; could not resolve site id", building_id)
-                    continue
+                    site_key = _site_key_for_building(building, site_id_strategy, default_site_id)
+                    site_uuid = resolve_site_uuid(site_key, create_if_empty=True)
+                    if site_uuid is None:
+                        log.warning(
+                            "Skipping building %s; could not resolve site id", building_id
+                        )
+                        continue
 
-                point_map, created_count = _upsert_points_for_building(
-                    cur, site_uuid, points, create_points
-                )
-                summary["points_upserted"] += created_count
-                if not point_map:
-                    log.info("No point mappings resolved for building %s; skipping query", building_id)
-                    continue
+                    point_map, created_count = _upsert_points_for_building(
+                        cur, site_uuid, points, create_points
+                    )
+                    summary["points_upserted"] += created_count
+                    if not point_map:
+                        log.info(
+                            "No point mappings resolved for building %s; skipping query",
+                            building_id,
+                        )
+                        continue
 
-                batches = [list(point_map.keys())[i : i + 200] for i in range(0, len(point_map), 200)]
-                total_rows_this_building = 0
+                    point_ids = list(point_map.keys())
+                    batches = [point_ids[i : i + 200] for i in range(0, len(point_ids), 200)]
+                    total_rows_this_building = 0
 
-                last_poll_end = state.get("last_poll_end")
-                window_min = max(1, int(scrape_interval_min))
-                if backfill_start is not None:
-                    if isinstance(last_poll_end, datetime):
-                        inc_start = max(last_poll_end, backfill_start)
+                    last_poll_end = state.get("last_poll_end")
+                    window_min = max(1, int(scrape_interval_min))
+                    is_first_backfill_run = backfill_start is not None and not isinstance(
+                        last_poll_end, datetime
+                    )
+                    backfill_window_min = max(180, window_min)
+                    if backfill_start is not None:
+                        if isinstance(last_poll_end, datetime):
+                            inc_start = max(last_poll_end, backfill_start)
+                        else:
+                            inc_start = backfill_start
                     else:
-                        inc_start = backfill_start
-                else:
-                    if isinstance(last_poll_end, datetime):
-                        inc_start = last_poll_end
-                    else:
-                        inc_start = now_utc - timedelta(minutes=window_min)
-                inc_end = now_utc
-                if inc_start < inc_end:
-                    for win_start, win_end in _window_chunks(
-                        inc_start, inc_end, step_minutes=window_min
-                    ):
-                        for batch in batches:
-                            q = client.query_v2(win_start, win_end, batch)
-                            rows = _extract_rows_from_query_result(point_map, site_uuid, q)
-                            total_rows_this_building += _insert_timeseries_rows(cur, rows)
-                _save_state(
-                    cur,
-                    state_key,
-                    backfill_start is not None,
-                    inc_end,
-                )
-                summary["rows_inserted"] += total_rows_this_building
-        conn.commit()
+                        if isinstance(last_poll_end, datetime):
+                            inc_start = last_poll_end
+                        else:
+                            inc_start = now_utc - timedelta(minutes=window_min)
+
+                    inc_end = now_utc
+                    if backfill_end is not None:
+                        inc_end = min(inc_end, backfill_end)
+
+                    if inc_start < inc_end:
+                        step_min = backfill_window_min if is_first_backfill_run else window_min
+                        for win_start, win_end in _window_chunks(
+                            inc_start, inc_end, step_minutes=step_min
+                        ):
+                            for batch in batches:
+                                q = client.query_v2(win_start, win_end, batch)
+                                rows = _extract_rows_from_query_result(point_map, site_uuid, q)
+                                total_rows_this_building += _insert_timeseries_rows(cur, rows)
+
+                    _save_state(
+                        cur,
+                        state_key,
+                        backfill_start is not None,
+                        inc_end,
+                    )
+                    summary["rows_inserted"] += total_rows_this_building
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     return summary

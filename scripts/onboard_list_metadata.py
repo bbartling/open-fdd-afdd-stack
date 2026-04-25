@@ -7,21 +7,9 @@ import argparse
 import json
 import os
 import sys
-from pathlib import Path
 
 from openfdd_stack.platform.drivers.onboard import OnboardClient, parse_building_filters
-
-
-def _fallback_api_key_from_stack_env() -> str:
-    env_path = Path(__file__).resolve().parents[1] / "stack" / ".env"
-    if not env_path.exists():
-        return ""
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        if not raw_line.startswith("OFDD_ONBOARD_API_KEY="):
-            continue
-        val = raw_line.split("=", 1)[1].strip().strip("'").strip('"')
-        return val
-    return ""
+from _onboard_cli import fallback_api_key_from_stack_env
 
 
 def main() -> int:
@@ -51,7 +39,7 @@ def main() -> int:
 
     api_key = (args.api_key or "").strip()
     if not api_key and not args.no_stack_env_fallback:
-        api_key = _fallback_api_key_from_stack_env()
+        api_key = fallback_api_key_from_stack_env()
     if not api_key:
         print("Missing API key. Set --api-key or OFDD_ONBOARD_API_KEY.", file=sys.stderr)
         return 1

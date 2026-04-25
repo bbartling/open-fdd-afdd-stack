@@ -228,6 +228,7 @@ Core:
   (no args)                 Build + start full stack (ALL services; Grafana/MQTT off unless flags below)
   --minimal                 Start minimal stack (db, bacnet-server, bacnet-scraper; add --with-grafana for Grafana)
   --mode MODE              Partial deployment mode: full, collector, model, engine (default: full)
+                           Note: in engine mode, onboard-scraper is useful only when OFDD_ONBOARD_ENABLED=true.
   --with-grafana            Include Grafana (http://localhost:3000; optional SQL dashboards)
   --with-mqtt-bridge        Start Mosquitto + wire BACnet2MQTT env (experimental; future remote/MQTT use—not core product yet)
   --with-mcp-rag            Include MCP RAG service (http://localhost:8090; retrieval over this repo docs + generated text + sparse-cloned upstream docs/ from open-fdd, diy-bacnet-server, easy-aso; see stack/mcp-rag/.vendor-docs/)
@@ -2154,7 +2155,7 @@ print(json.dumps({
     'onboard_create_points': env('OFDD_ONBOARD_CREATE_POINTS', True),
     'graph_sync_interval_min': env('OFDD_GRAPH_SYNC_INTERVAL_MIN', 5),
 }))
-" 2>/dev/null) || body="{\"rule_interval_hours\":0.1,\"lookback_days\":3,\"rules_dir\":\"stack/rules\",\"brick_ttl_dir\":\"config\",\"bacnet_enabled\":true,\"bacnet_scrape_interval_min\":5,\"bacnet_server_url\":\"http://caddy:8081\",\"bacnet_site_id\":\"default\",\"open_meteo_enabled\":true,\"open_meteo_interval_hours\":24,\"open_meteo_latitude\":41.88,\"open_meteo_longitude\":-87.63,\"open_meteo_timezone\":\"America/Chicago\",\"open_meteo_days_back\":3,\"open_meteo_site_id\":\"default\",\"onboard_enabled\":false,\"onboard_api_base_url\":\"https://api.onboarddata.io\",\"onboard_building_ids\":\"\",\"onboard_scrape_interval_min\":15,\"onboard_backfill_start\":null,\"onboard_backfill_end\":null,\"onboard_site_id_strategy\":\"onboard-building-id\",\"onboard_create_points\":true,\"graph_sync_interval_min\":5}"
+" 2>/dev/null) || body="{\"rule_interval_hours\":0.1,\"lookback_days\":3,\"rules_dir\":\"stack/rules\",\"brick_ttl_dir\":\"config\",\"bacnet_enabled\":true,\"bacnet_scrape_interval_min\":5,\"bacnet_server_url\":\"http://caddy:8081\",\"bacnet_site_id\":\"default\",\"open_meteo_enabled\":true,\"open_meteo_interval_hours\":24,\"open_meteo_latitude\":41.88,\"open_meteo_longitude\":-87.63,\"open_meteo_timezone\":\"America/Chicago\",\"open_meteo_days_back\":3,\"open_meteo_site_id\":\"default\",\"onboard_enabled\":false,\"onboard_api_base_url\":\"https://api.onboarddata.io\",\"onboard_building_ids\":\"\",\"onboard_scrape_interval_min\":180,\"onboard_backfill_start\":null,\"onboard_backfill_end\":null,\"onboard_site_id_strategy\":\"onboard-building-id\",\"onboard_create_points\":true,\"graph_sync_interval_min\":5}"
 
   if curl -sf -X PUT "$API_BASE/config" -H "Content-Type: application/json" "${curl_auth[@]}" -d "$body" >/dev/null 2>&1; then
     echo "  PUT /config OK (config stored in RDF)."

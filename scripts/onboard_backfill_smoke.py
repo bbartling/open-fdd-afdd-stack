@@ -7,25 +7,13 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
 
 from openfdd_stack.platform.drivers.onboard import (
     parse_building_filters,
     parse_iso_ts,
     run_onboard_ingest_once,
 )
-
-
-def _fallback_api_key_from_stack_env() -> str:
-    env_path = Path(__file__).resolve().parents[1] / "stack" / ".env"
-    if not env_path.exists():
-        return ""
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        if not raw_line.startswith("OFDD_ONBOARD_API_KEY="):
-            continue
-        val = raw_line.split("=", 1)[1].strip().strip("'").strip('"')
-        return val
-    return ""
+from _onboard_cli import fallback_api_key_from_stack_env
 
 
 def main() -> int:
@@ -58,7 +46,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--interval-min",
-        default=int(os.getenv("OFDD_ONBOARD_SCRAPE_INTERVAL_MIN", "15")),
+        default=os.getenv("OFDD_ONBOARD_SCRAPE_INTERVAL_MIN", "180"),
         type=int,
     )
     parser.add_argument(
@@ -68,7 +56,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--create-points",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=os.getenv("OFDD_ONBOARD_CREATE_POINTS", "true").lower() == "true",
     )
     parser.add_argument(
@@ -80,7 +68,7 @@ def main() -> int:
 
     api_key = (args.api_key or "").strip()
     if not api_key and not args.no_stack_env_fallback:
-        api_key = _fallback_api_key_from_stack_env()
+        api_key = fallback_api_key_from_stack_env()
     if not api_key:
         print("Missing API key. Set --api-key or OFDD_ONBOARD_API_KEY.", file=sys.stderr)
         return 1
@@ -101,6 +89,7 @@ def main() -> int:
         building_filters=building_filters,
         backfill_start=parse_iso_ts(args.backfill_start),
         scrape_interval_min=max(1, int(args.interval_min)),
+        backfill_end=parse_iso_ts(args.backfill_end),
         site_id_strategy=args.site_id_strategy,
         create_points=bool(args.create_points),
     )

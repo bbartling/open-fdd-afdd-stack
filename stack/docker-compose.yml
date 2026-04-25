@@ -151,7 +151,6 @@ services:
       - ./sql:/docker-entrypoint-initdb.d
     networks:
       - default
-      - shared
     logging:
       driver: json-file
       options: *log-opts

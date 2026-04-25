@@ -136,49 +136,24 @@ printf '%s' 'YourSecurePassword' | ./scripts/bootstrap.sh \
 
 ### Standard Maintenance
 
-Standard update procedures should use `--update`, which pulls the latest versions of all applications (including sibling DIY BACnet Server when present), safely removes unused Docker images, rebuilds/restarts as needed, and verifies runtime health.
-
-Most patch updates do **not** require re-entering username/password or BACnet OT NIC settings. Re-pass those flags only when intentionally changing site credentials/network settings or provisioning a fresh host.
+This retains existing auth and BACnet NIC settings when those were previously bootstrapped (unless override flags are passed).
 
 Recommended recurring patch command:
 
 ```bash
 cd open-fdd-afdd-stack
-./scripts/bootstrap.sh --maintenance --update --verify
+./scripts/bootstrap.sh --maintenance --update --verify --force-rebuild --with-mcp-rag
 ```
 
-Higher-assurance patch command (forces rebuild + tests):
-
-```bash
-cd open-fdd-afdd-stack
-
-printf '%s' 'YourSecurePassword' | ./scripts/bootstrap.sh \
-  --maintenance \
-  --update \
-  --verify \
-  --force-rebuild \
-  --test \
-  --diy-bacnet-tests \
-  --user ben \
-  --password-stdin \
-  --frontend \
-  --bacnet-address 192.168.204.18/24:47808 \
-  --bacnet-instance 123456 \
-  --with-mcp-rag
-```
-
-
-The `--with-mcp-rag` flag starts the internal MCP/RAG service on port `8090`.
-
-
+This updates/rebuilds to latest code.
 
 ### What this enables
 
-* Query MCP for building data models
-* Assist with Brick data model tagging
-* Generate and refine FDD rules
-* Analyze faults and telemetry data
-* Automate workflows against the AFDD stack
+* Query MCP for model context and retrieval
+* Speed up Brick tagging and import workflows
+* Generate/refine FDD rules and diagnostics
+* Analyze faults and telemetry trends
+* Automate repeatable AFDD bench workflows
 
 ---
 

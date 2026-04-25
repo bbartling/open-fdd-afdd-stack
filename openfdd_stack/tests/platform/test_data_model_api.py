@@ -167,6 +167,7 @@ def test_data_model_export_import_template_is_import_safe_shape():
     assert r.status_code == 200
     body = r.json()
     assert "points" in body
+    assert "template_hints" in body
     assert body["equipment"] == []
     row = body["points"][0]
     assert row["point_id"] == str(point_id)
@@ -174,6 +175,29 @@ def test_data_model_export_import_template_is_import_safe_shape():
     assert row["rule_input"] == "zt"
     assert "engineering" not in row
     assert "equipment_metadata" not in row
+
+
+def test_data_model_export_import_template_returns_scaffold_when_empty():
+    with (
+        patch(
+            "openfdd_stack.platform.api.data_model.serialize_to_ttl",
+            return_value="@prefix brick: <https://brickschema.org/schema/Brick#> .\n",
+        ),
+        patch(
+            "openfdd_stack.platform.api.data_model.get_conn",
+            side_effect=_mock_get_conn_sequence([], []),
+        ),
+    ):
+        r = client.get("/data-model/export/import-template")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body.get("points"), list)
+    assert len(body["points"]) == 1
+    assert body["points"][0]["point_id"] is None
+    assert body["points"][0]["site_id"] == "<site-uuid>"
+    hints = body.get("template_hints", {})
+    assert "required_create_fields" in hints
+    assert "minimal_example" in hints
 
 
 def test_data_model_export_includes_bacnet_refs():
@@ -733,6 +757,34 @@ def test_data_model_import_missing_create_fields_fails_hard_422():
     assert r.status_code == 422
     detail = (r.json().get("error") or {}).get("message", "") or str(r.json())
     assert "Invalid create payload" in detail
+
+
+def test_data_model_import_allows_template_hints_passthrough():
+    point_id = uuid4()
+    cursor = MagicMock()
+    cursor.rowcount = 1
+    cursor.execute.return_value = None
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=None)
+    body = {
+        "points": [{"point_id": str(point_id), "brick_type": "Zone_Air_Temperature_Sensor"}],
+        "equipment": [],
+        "template_hints": {
+            "required_create_fields": ["site_id", "external_id", "bacnet_device_id", "object_identifier"]
+        },
+    }
+    with (
+        patch("openfdd_stack.platform.api.data_model.get_conn", side_effect=lambda: conn),
+        patch("openfdd_stack.platform.api.data_model.sync_ttl_to_file"),
+    ):
+        r = client.put("/data-model/import", json=body)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["updated"] == 1
+    assert out["total"] == 1
 
 
 def test_data_model_import_infers_payload_site_for_null_rows():

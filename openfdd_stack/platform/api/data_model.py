@@ -540,13 +540,44 @@ class DataModelImportBody(BaseModel):
         default_factory=list,
         description="Optional: update equipment feeds/fed_by; RDF is rebuilt and serialized after import.",
     )
+    template_hints: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional helper metadata from GET /data-model/export/import-template. Ignored by import execution.",
+    )
+
+
+class ImportTemplateHints(BaseModel):
+    required_create_fields: list[str] = Field(
+        default_factory=list,
+        description="Required point fields when point_id is omitted.",
+    )
+    optional_point_fields: list[str] = Field(
+        default_factory=list,
+        description="Optional point fields commonly used by AI tagging workflows.",
+    )
+    optional_equipment_fields: list[str] = Field(
+        default_factory=list,
+        description="Optional equipment relationship/metadata fields for import payloads.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes to avoid common AI workflow mistakes.",
+    )
+    minimal_example: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Minimal import-ready payload example.",
+    )
+
+
+class DataModelImportTemplateBody(DataModelImportBody):
+    template_hints: ImportTemplateHints
 
 
 @router.get(
     "/export/import-template",
-    response_model=DataModelImportBody,
+    response_model=DataModelImportTemplateBody,
     summary="Export an import-safe JSON template for AI/human tagging",
-    response_description="Import-safe payload shape: points[] plus optional equipment[]; excludes export-only metadata fields.",
+    response_description="Import-safe payload shape: points[] plus optional equipment[] + template_hints; excludes export-only metadata fields.",
 )
 def export_import_template(
     site_id: str | None = Query(
@@ -590,7 +621,54 @@ def export_import_template(
             "modbus_config": r.modbus_config,
         }
         points.append(point)
-    return {"points": points, "equipment": []}
+    example_point = {
+        "point_id": None,
+        "site_id": "<site-uuid>",
+        "external_id": "ZoneTemp",
+        "bacnet_device_id": "3456789",
+        "object_identifier": "analog-input,1",
+        "object_name": "ZoneTemp",
+        "brick_type": "Zone_Air_Temperature_Sensor",
+        "rule_input": "zt",
+        "polling": True,
+    }
+    if not points:
+        # Keep endpoint useful right after clean reset by returning one scaffold row.
+        points = [example_point]
+    return {
+        "points": points,
+        "equipment": [],
+        "template_hints": {
+            "required_create_fields": [
+                "site_id (or resolvable site_name)",
+                "external_id",
+                "bacnet_device_id",
+                "object_identifier",
+            ],
+            "optional_point_fields": [
+                "object_name",
+                "brick_type",
+                "rule_input",
+                "equipment_name",
+                "unit",
+                "polling",
+            ],
+            "optional_equipment_fields": [
+                "equipment_name",
+                "equipment_type",
+                "site_id",
+                "feeds_equipment_id",
+                "fed_by_equipment_id",
+                "engineering",
+            ],
+            "notes": [
+                "Use this endpoint for round-trip-safe AI imports instead of replaying raw /data-model/export rows.",
+                "When point_id is omitted, incomplete create rows fail with 4xx.",
+                "Export-only context fields (engineering/equipment_metadata mirrors on point rows) are intentionally excluded here.",
+            ],
+            "minimal_example": {"points": [example_point], "equipment": []},
+        },
+    }
 
 
 def _normalize_ttl_id_to_uuid(s: str) -> str | None:

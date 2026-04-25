@@ -312,8 +312,7 @@ if $RESET_DATA && $PURGE_TIMESERIES; then
   PURGE_TIMESERIES=false
 fi
 if $ENFORCE_NETWORK_DEFAULT && [[ "$MODE" == "collector" || "$MODE" == "engine" ]]; then
-  echo "--enforce-network-default requested, but MODE=$MODE does not run API by default; enforcement will run only if API is reachable."
-  ENFORCE_NETWORK_DEFAULT=false
+  echo "--enforce-network-default requested with MODE=$MODE; bootstrap will keep the request and attempt enforcement when API becomes reachable in applicable flows."
 fi
 
 # --update --test: defer pytest to after pull/rebuild (otherwise the early --test handler exits before --update runs).
@@ -2555,7 +2554,7 @@ if $UPDATE_PULL_REBUILD; then
   fi
   if $ENFORCE_NETWORK_DEFAULT; then
     echo ""
-    enforce_network_default_config_via_api || true
+    enforce_network_default_config_via_api
   fi
   validate_container_connectivity_hops
   if ! $VERIFY_ONLY && ! $RUN_TESTS_AFTER_UPDATE; then
@@ -2668,7 +2667,7 @@ apply_migrations_best_effort
 if [[ "$MODE" == "full" || "$MODE" == "model" ]]; then
   echo ""
   if $ENFORCE_NETWORK_DEFAULT; then
-    enforce_network_default_config_via_api || true
+    enforce_network_default_config_via_api
   else
     seed_config_via_api || true
   fi

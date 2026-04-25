@@ -136,6 +136,54 @@ def test_results_with_provenance_matches_composite_rule_input_keys():
     assert ev["object_name"] == "Zone Temp"
 
 
+def test_results_with_provenance_uses_split_fallback():
+    df = pd.DataFrame(
+        [
+            {
+                "timestamp": datetime(2026, 4, 20, 12, 3, 0),
+                "ZoneTemp": 95.0,
+                "bad_sensor_flag": 1,
+            }
+        ]
+    )
+    rules = [
+        {
+            "name": "bad_sensor_check",
+            "flag": "bad_sensor_flag",
+            "inputs": {"Zone_Temperature_Sensor|zone_temp": {}},
+        }
+    ]
+    point_lookup = {
+        "ZoneTemp": {
+            "point_id": "pt-zone",
+            "external_id": "ZoneTemp",
+            "object_identifier": "analog-input,1",
+            "object_name": "Zone Temp",
+        },
+        "Zone_Temperature_Sensor": {
+            "point_id": "pt-zone",
+            "external_id": "ZoneTemp",
+            "object_identifier": "analog-input,1",
+            "object_name": "Zone Temp",
+        },
+    }
+    out = _results_with_provenance(
+        df,
+        "site-1",
+        "VAV-1",
+        rules,
+        point_lookup,
+        timestamp_col="timestamp",
+    )
+    assert len(out) == 1
+    ev = out[0].evidence
+    assert isinstance(ev, dict)
+    assert ev["point_id"] == "pt-zone"
+    assert ev["external_id"] == "ZoneTemp"
+    assert ev["object_identifier"] == "analog-input,1"
+    assert ev["object_name"] == "Zone Temp"
+
+
 def _mock_conn_capture_execute_values():
     cur = MagicMock()
     conn = MagicMock()

@@ -36,13 +36,15 @@ This page describes a **single upload** workflow for mechanical engineers: send 
 
 ## Copy/paste prompt template (recommended) {#copy-paste-prompt-template-recommended}
 
-Use this as your LLM **system** or **developer** prompt when transforming `GET /data-model/export` into import JSON. This is the **canonical** copy-paste text for the published docs (save to a local file such as `pdf/canonical_llm_prompt.txt` if you want a path for agents or runbooks).
+Use this as your LLM **system** or **developer** prompt when transforming Open-FDD export data into import JSON. Prefer the import-safe template endpoint; this is the **canonical** copy-paste text for the published docs (save to a local file such as `pdf/canonical_llm_prompt.txt` if you want a path for agents or runbooks).
 
 ```text
 You are transforming Open-FDD export JSON into Open-FDD import JSON.
 
 I will paste JSON from:
-GET /data-model/export?site_id=<site_id>
+GET /data-model/export/import-template?site_id=<site_id>
+
+If I provide raw GET /data-model/export rows instead, first transform to the import-safe shape by removing export-only row mirrors such as engineering and equipment_metadata before building the final import payload.
 
 Your job is to return ONLY valid JSON with EXACTLY these two top-level keys:
 

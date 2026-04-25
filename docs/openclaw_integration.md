@@ -117,9 +117,9 @@ For local bench testing, OpenClaw commonly runs as a container sibling to the Op
 
 **Preferred base URLs from OpenClaw container:**
 
-1. **Direct API:** `http://host.docker.internal:8000`
+1. **Same Docker network (recommended):** `http://openfdd_api:8000` (or `http://api:8000` if available)
 2. **Via Caddy route:** `http://host.docker.internal/api`
-3. **Same Docker network (if attached):** `http://openfdd_api:8000` (or `http://api:8000` if available)
+3. **Direct host API (only when API is host-reachable):** `http://host.docker.internal:8000` (for example when `OFDD_API_HOST_BIND=0.0.0.0` / `--lan-bind`, or when your runtime maps host loopback accordingly)
 
 **Usage rules for sibling-container mode:**
 

@@ -6,7 +6,10 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from pathlib import Path
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from openfdd_stack.platform.drivers.onboard import (
     parse_building_filters,

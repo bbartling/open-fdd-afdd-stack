@@ -14,6 +14,7 @@ import { BacnetToolsPage } from "@/components/pages/BacnetToolsPage";
 import { DataModelPage } from "@/components/pages/DataModelPage";
 import { EnergyEngineeringPage } from "@/components/pages/EnergyEngineeringPage";
 import { DataModelTestingPage } from "@/components/pages/DataModelTestingPage";
+import { CsvImportPage } from "@/components/pages/CsvImportPage";
 import { PlotsPage } from "@/components/pages/PlotsPage";
 import { AnalyticsPage } from "@/components/pages/AnalyticsPage";
 import { WeatherDataPage } from "@/components/pages/WeatherDataPage";
@@ -119,6 +120,7 @@ function AppRoutes() {
         >
           <Route index element={<OverviewPage />} />
           <Route path="config" element={<ConfigPage />} />
+          <Route path="csv-import" element={<CsvImportPage />} />
           <Route path="bacnet-tools" element={<BacnetToolsPage />} />
           <Route path="equipment" element={<Navigate to="/config" replace />} />
           <Route path="points" element={<PointsPage />} />

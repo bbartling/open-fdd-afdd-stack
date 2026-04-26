@@ -348,9 +348,13 @@ def run_onboard_ingest_once(
                     total_rows_this_building = 0
 
                     last_poll_end = state.get("last_poll_end")
+                    backfill_done_state = bool(state.get("backfill_done"))
                     window_min = max(1, int(scrape_interval_min))
-                    is_first_backfill_run = backfill_start is not None and not isinstance(
-                        last_poll_end, datetime
+                    effective_backfill_end = None if backfill_done_state else backfill_end
+                    is_first_backfill_run = (
+                        backfill_start is not None
+                        and not backfill_done_state
+                        and not isinstance(last_poll_end, datetime)
                     )
                     backfill_window_min = max(180, window_min)
                     if backfill_start is not None:
@@ -365,8 +369,8 @@ def run_onboard_ingest_once(
                             inc_start = now_utc - timedelta(minutes=window_min)
 
                     inc_end = now_utc
-                    if backfill_end is not None:
-                        inc_end = min(inc_end, backfill_end)
+                    if effective_backfill_end is not None:
+                        inc_end = min(inc_end, effective_backfill_end)
 
                     if inc_start < inc_end:
                         step_min = backfill_window_min if is_first_backfill_run else window_min
@@ -381,7 +385,7 @@ def run_onboard_ingest_once(
                     if backfill_start is None:
                         backfill_done = bool(state.get("backfill_done"))
                     else:
-                        target_end = backfill_end if backfill_end is not None else now_utc
+                        target_end = effective_backfill_end if effective_backfill_end is not None else now_utc
                         backfill_done = inc_end >= target_end
                     _save_state(
                         cur,

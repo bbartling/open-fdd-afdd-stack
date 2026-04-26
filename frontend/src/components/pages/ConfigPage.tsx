@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Save, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { JsonPrettyPanel } from "@/components/ui/json-pretty-panel";
-import { getConfig, putConfig } from "@/lib/crud-api";
+import { getConfig, getDriverProfileStatus, putConfig } from "@/lib/crud-api";
 import type { PlatformConfig } from "@/types/api";
 
 const inputClass =
@@ -143,6 +143,38 @@ function ConfigSummary({ config }: { config: PlatformConfig }) {
   );
 }
 
+function DriverBootstrapSummary() {
+  const { data } = useQuery({
+    queryKey: ["driver-profile"],
+    queryFn: getDriverProfileStatus,
+  });
+  if (!data) return null;
+  const rows = [
+    ["BACnet", data.drivers.bacnet],
+    ["Onboard", data.drivers.onboard],
+    ["CSV", data.drivers.csv],
+    ["Weather", data.drivers.weather],
+    ["FDD", data.drivers.fdd],
+  ] as const;
+  return (
+    <Card className="mb-6 border-dashed">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Bootstrap driver profile</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1 text-sm">
+        {rows.map(([label, on]) => (
+          <div key={label} className="flex items-center justify-between">
+            <span className="text-muted-foreground">{label}</span>
+            <span className={on ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+              {on ? "Enabled" : "Not bootstrapped"}
+            </span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ConfigPage() {
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useQuery<PlatformConfig>({
@@ -201,6 +233,8 @@ export function ConfigPage() {
       <p className="mb-6 text-sm text-muted-foreground">
         Platform settings stored in the knowledge graph. Changes take effect on the next FDD run or scraper cycle.
       </p>
+
+      <DriverBootstrapSummary />
 
       {/* Current settings summary (read-only, grouped) */}
       <ConfigSummary config={config} />

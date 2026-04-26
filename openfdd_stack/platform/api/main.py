@@ -19,6 +19,7 @@ from openfdd_stack.platform.api import (
     auth_routes,
     bacnet,
     config as config_router,
+    csv_ingest,
     data_model,
     download,
     energy_calculations,
@@ -275,6 +276,7 @@ def _unified_error_handler(request: Request, exc: Exception):
 
 
 app.include_router(config_router.router)
+app.include_router(csv_ingest.router)
 app.include_router(auth_routes.router)
 app.include_router(sites.router)
 app.include_router(points.router)

@@ -20,6 +20,28 @@ export interface PlatformConfig {
   [key: string]: unknown;
 }
 
+export interface DriverProfileStatus {
+  profile_path: string;
+  profile_exists: boolean;
+  drivers: Record<string, boolean>;
+  services: Record<string, boolean>;
+}
+
+export interface CsvUploadResponse {
+  ok: boolean;
+  validated: boolean;
+  preview: {
+    rows_total: number;
+    rows_with_valid_timestamp: number;
+    timestamp_column: string | null;
+    metric_columns: string[];
+  };
+  ingest?: {
+    rows_inserted: number;
+    points_upserted: number;
+  };
+}
+
 export interface Site {
   id: string;
   name: string;

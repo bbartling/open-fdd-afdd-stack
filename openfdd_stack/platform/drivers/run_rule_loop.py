@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from openfdd_stack.platform.config import get_platform_settings
 from openfdd_stack.platform.config import set_config_overlay
+from openfdd_stack.platform.drivers.onboard import parse_iso_ts
 from openfdd_stack.platform.graph_model import get_config_from_graph, load_from_file
 from openfdd_stack.platform.loop import run_fdd_loop
 from openfdd_stack.platform.site_resolver import resolve_site_uuid
@@ -68,20 +69,6 @@ def _runtime_loop_settings() -> tuple[float, int, int, str | None]:
     lookback_days = int(getattr(settings, "lookback_days", 3))
     trigger_path = getattr(settings, "fdd_trigger_file", None) or "config/.run_fdd_now"
     return interval_hours, sleep_sec, lookback_days, trigger_path
-
-
-def _parse_iso_ts(value: str | None) -> datetime | None:
-    if value is None:
-        return None
-    raw = str(value).strip()
-    if not raw:
-        return None
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    parsed = datetime.fromisoformat(raw)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 def _load_backfill_state(state_key: str) -> dict:
@@ -204,21 +191,21 @@ def main() -> int:
             log.exception("FDD backfill window failed: %s", e)
             return 1
 
-    def _run_backfill_pass() -> int:
+    def _run_backfill_pass() -> tuple[int, bool]:
         settings = get_platform_settings()
         enabled = bool(getattr(settings, "fdd_backfill_enabled", False))
         if not enabled:
-            return 0
+            return 0, False
         cfg_start_raw = getattr(settings, "fdd_backfill_start", None)
         cfg_end_raw = getattr(settings, "fdd_backfill_end", None)
-        cfg_start = _parse_iso_ts(cfg_start_raw)
-        cfg_end = _parse_iso_ts(cfg_end_raw)
+        cfg_start = parse_iso_ts(cfg_start_raw)
+        cfg_end = parse_iso_ts(cfg_end_raw)
         if cfg_start is None:
             log.warning("fdd_backfill_enabled=true but fdd_backfill_start is empty; skipping.")
-            return 0
+            return 0, False
         if cfg_end is not None and cfg_end <= cfg_start:
             log.warning("Invalid FDD backfill bounds: end <= start; skipping.")
-            return 0
+            return 0, False
         step_hours = max(1, int(getattr(settings, "fdd_backfill_step_hours", 3)))
 
         state = _load_backfill_state(BACKFILL_STATE_KEY)
@@ -232,14 +219,14 @@ def main() -> int:
         target_end = cfg_end or datetime.now(timezone.utc)
         if cursor >= target_end:
             log.info("FDD backfill already complete up to %s", target_end.isoformat())
-            return 0
+            return 0, False
 
         windows_run = 0
         while cursor < target_end:
             win_end = min(cursor + timedelta(hours=step_hours), target_end)
             rc = _run_window(cursor, win_end)
             if rc != 0:
-                return rc
+                return rc, True
             windows_run += 1
             cursor = win_end
             _save_backfill_state(
@@ -249,7 +236,7 @@ def main() -> int:
                 cfg_end_key,
             )
         log.info("FDD backfill pass complete: %d windows", windows_run)
-        return 0
+        return 0, windows_run > 0
 
     if args.loop:
         interval_hours, sleep_sec, lookback_days, trigger_path = _runtime_loop_settings()
@@ -264,10 +251,14 @@ def main() -> int:
         while True:
             # Reload runtime config each cycle so GET/PUT /config changes apply without restart.
             interval_hours, sleep_sec, lookback_days, trigger_path = _runtime_loop_settings()
-            rc = _run_backfill_pass()
+            rc, backfill_ran = _run_backfill_pass()
             if rc != 0:
-                return rc
-            _run(lookback_days=lookback_days)
+                log.error("FDD backfill pass failed with rc=%s; continuing with routine lookback run", rc)
+                _run(lookback_days=lookback_days)
+            elif backfill_ran:
+                log.info("Backfill windows ran this cycle; skipping routine lookback run to avoid overlap")
+            else:
+                _run(lookback_days=lookback_days)
             elapsed = 0
             while elapsed < sleep_sec:
                 nap = min(TRIGGER_POLL_SEC, sleep_sec - elapsed)
@@ -294,7 +285,7 @@ def main() -> int:
             log.info("Next run in %.2f h", interval_hours)
     else:
         _, _, lookback_days, _ = _runtime_loop_settings()
-        rc = _run_backfill_pass()
+        rc, _ = _run_backfill_pass()
         if rc != 0:
             return rc
         return _run(lookback_days=lookback_days)

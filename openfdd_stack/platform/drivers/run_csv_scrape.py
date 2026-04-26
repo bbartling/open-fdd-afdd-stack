@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from openfdd_stack.platform.config import get_platform_settings
@@ -28,6 +29,10 @@ def _get_api_url() -> str:
 
 def _fetch_platform_config(log: logging.Logger) -> dict | None:
     url = f"{_get_api_url()}/config"
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        log.warning("Unsupported OFDD_API_URL scheme for %s", url)
+        return None
     req = urllib.request.Request(url)
     api_key = os.environ.get("OFDD_API_KEY", "").strip()
     if api_key:
@@ -76,10 +81,10 @@ def main() -> int:
     setup_logging(args.verbose)
     log = logging.getLogger("open_fdd.csv")
 
-    settings = get_platform_settings()
     prev_interval_min: int | None = None
 
     while True:
+        settings = get_platform_settings()
         cfg = _fetch_platform_config_cached(log)
         enabled = bool(_cfg_value(cfg, "csv_enabled", settings.csv_enabled))
         if not enabled:
@@ -109,7 +114,10 @@ def main() -> int:
             sources = parse_csv_sources(sources_raw)
         except Exception as e:
             log.error("Invalid csv_sources: %s", e)
-            return 1
+            if not args.loop:
+                return 1
+            time.sleep(max(1, interval_min) * 60)
+            continue
         if not sources:
             log.warning("CSV ingestion enabled but csv_sources is empty.")
             if not args.loop:

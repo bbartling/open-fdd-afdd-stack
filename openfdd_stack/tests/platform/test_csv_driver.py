@@ -88,6 +88,7 @@ def test_run_csv_ingest_once(monkeypatch):
                     )
                 ),
                 "to_datetime": staticmethod(pd.to_datetime),
+                    "to_numeric": staticmethod(pd.to_numeric),
             },
         ),
     )

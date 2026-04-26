@@ -72,6 +72,8 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
     building = {"id": 66, "name": "Example Building"}
     now_start = datetime(2021, 5, 1, 8, tzinfo=timezone.utc)
     now_end = datetime(2021, 5, 1, 10, tzinfo=timezone.utc)
+    site_uuid = uuid4()
+    point_uuid = uuid4()
     save_calls: list[tuple] = []
     insert_calls: list[int] = []
 
@@ -99,7 +101,7 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
 
     monkeypatch.setattr(onboard, "OnboardClient", _FakeClient)
     monkeypatch.setattr(onboard, "get_conn", lambda: _DummyConn())
-    monkeypatch.setattr(onboard, "resolve_site_uuid", lambda *_args, **_kwargs: uuid4())
+    monkeypatch.setattr(onboard, "resolve_site_uuid", lambda *_args, **_kwargs: site_uuid)
     monkeypatch.setattr(
         onboard,
         "_load_state",
@@ -115,7 +117,7 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
     monkeypatch.setattr(
         onboard, "_window_chunks", lambda _s, _e, step_minutes=180: [(now_start, now_end)]
     )
-    monkeypatch.setattr(onboard, "_upsert_points_for_building", lambda *_args, **_kwargs: ({101: uuid4()}, 1))
+    monkeypatch.setattr(onboard, "_upsert_points_for_building", lambda *_args, **_kwargs: ({101: point_uuid}, 1))
     monkeypatch.setattr(
         onboard,
         "_insert_timeseries_rows",
@@ -142,6 +144,8 @@ def test_run_onboard_ingest_once_runs_incremental_after_backfill(monkeypatch):
     building = {"id": 66, "name": "Example Building"}
     now_start = datetime(2021, 5, 1, 8, tzinfo=timezone.utc)
     now_end = datetime(2021, 5, 1, 10, tzinfo=timezone.utc)
+    site_uuid = uuid4()
+    point_uuid = uuid4()
     save_calls: list[tuple] = []
     insert_calls: list[int] = []
     window_steps: list[int] = []
@@ -170,7 +174,7 @@ def test_run_onboard_ingest_once_runs_incremental_after_backfill(monkeypatch):
 
     monkeypatch.setattr(onboard, "OnboardClient", _FakeClient)
     monkeypatch.setattr(onboard, "get_conn", lambda: _DummyConn())
-    monkeypatch.setattr(onboard, "resolve_site_uuid", lambda *_args, **_kwargs: uuid4())
+    monkeypatch.setattr(onboard, "resolve_site_uuid", lambda *_args, **_kwargs: site_uuid)
     monkeypatch.setattr(
         onboard,
         "_load_state",
@@ -192,7 +196,7 @@ def test_run_onboard_ingest_once_runs_incremental_after_backfill(monkeypatch):
         "_window_chunks",
         lambda _s, _e, step_minutes=180: window_steps.append(step_minutes) or [(now_start, now_end)],
     )
-    monkeypatch.setattr(onboard, "_upsert_points_for_building", lambda *_args, **_kwargs: ({101: uuid4()}, 1))
+    monkeypatch.setattr(onboard, "_upsert_points_for_building", lambda *_args, **_kwargs: ({101: point_uuid}, 1))
     monkeypatch.setattr(
         onboard,
         "_insert_timeseries_rows",

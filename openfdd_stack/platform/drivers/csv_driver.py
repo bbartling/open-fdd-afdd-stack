@@ -60,7 +60,10 @@ def parse_csv_sources(raw: str | None) -> list[CsvSource]:
 
 
 def _source_key(source: CsvSource) -> str:
-    digest = hashlib.sha1(f"{source.path}|{source.site_id}".encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha1(  # noqa: S324 - deterministic non-crypto state key
+        f"{source.path}|{source.site_id}".encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()[:12]
     return f"csv:{digest}"
 
 
@@ -109,6 +112,162 @@ def _insert_timeseries_rows(cur, rows: list[tuple]) -> int:
         page_size=2000,
     )
     return len(rows)
+
+
+def validate_csv_dataframe(df: pd.DataFrame) -> dict[str, Any]:
+    """Validate a CSV dataframe and report model-style errors."""
+    errors: list[str] = []
+    if df.empty:
+        errors.append("CSV has no rows.")
+        return {
+            "errors": errors,
+            "rows_total": 0,
+            "rows_with_valid_timestamp": 0,
+            "timestamp_column": None,
+            "metric_columns": [],
+        }
+    try:
+        ts_col = _infer_timestamp_column([str(c) for c in df.columns])
+    except Exception:
+        errors.append("Missing timestamp column. Expected 'timestamp' or similar name.")
+        return {
+            "errors": errors,
+            "rows_total": int(len(df.index)),
+            "rows_with_valid_timestamp": 0,
+            "timestamp_column": None,
+            "metric_columns": [],
+        }
+
+    ts_series = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
+    valid_ts = int(ts_series.notna().sum())
+    if valid_ts == 0:
+        errors.append(f"Timestamp column '{ts_col}' has no parseable values.")
+
+    metric_cols = [c for c in df.columns if c != ts_col]
+    if not metric_cols:
+        errors.append("CSV has no metric columns besides timestamp.")
+    else:
+        numeric_cols = []
+        non_numeric_cols = []
+        for col in metric_cols:
+            vals = pd.to_numeric(df[col], errors="coerce")
+            if int(vals.notna().sum()) > 0:
+                numeric_cols.append(str(col))
+            else:
+                non_numeric_cols.append(str(col))
+        if not numeric_cols:
+            errors.append("No numeric metric columns found.")
+        if non_numeric_cols:
+            errors.append(
+                "Non-numeric columns (ignored for ingest): " + ", ".join(non_numeric_cols)
+            )
+
+    return {
+        "errors": errors,
+        "rows_total": int(len(df.index)),
+        "rows_with_valid_timestamp": valid_ts,
+        "timestamp_column": ts_col,
+        "metric_columns": [str(c) for c in metric_cols],
+    }
+
+
+def _build_rows_from_dataframe(
+    *,
+    df: pd.DataFrame,
+    metric_cols: list[Any],
+    point_ids: dict[str, Any],
+    site_id_text: str,
+) -> list[tuple]:
+    if df.empty or not metric_cols:
+        return []
+    melted = df[["__ts", *metric_cols]].melt(
+        id_vars=["__ts"],
+        value_vars=metric_cols,
+        var_name="metric",
+        value_name="value",
+    )
+    melted["value"] = pd.to_numeric(melted["value"], errors="coerce")
+    melted = melted.dropna(subset=["__ts", "value"]).copy()
+    if melted.empty:
+        return []
+    melted["point_id"] = melted["metric"].map(lambda c: point_ids.get(str(c)))
+    melted = melted.dropna(subset=["point_id"]).copy()
+    if melted.empty:
+        return []
+
+    ts_values = melted["__ts"].tolist()
+    norm_ts = [t.to_pydatetime() if hasattr(t, "to_pydatetime") else t for t in ts_values]
+    return list(
+        zip(
+            norm_ts,
+            [site_id_text] * len(melted.index),
+            melted["point_id"].tolist(),
+            melted["value"].astype(float).tolist(),
+            [None] * len(melted.index),
+        )
+    )
+
+
+def ingest_csv_dataframe(
+    *,
+    site_id: str,
+    df: pd.DataFrame,
+    source_name: str,
+    create_points: bool = True,
+) -> dict[str, int]:
+    """Ingest a validated CSV dataframe into points/timeseries."""
+    site_uuid = resolve_site_uuid(site_id, create_if_empty=True)
+    if site_uuid is None:
+        raise ValueError(f"Could not resolve site id '{site_id}'")
+    ts_col = _infer_timestamp_column([str(c) for c in df.columns])
+    df = df.copy()
+    df["__ts"] = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
+    df = df[df["__ts"].notna()].copy()
+    if df.empty:
+        return {"rows_inserted": 0, "points_upserted": 0}
+
+    metric_cols = [c for c in df.columns if c not in (ts_col, "__ts")]
+    site_id_text = str(site_uuid)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            point_ids: dict[str, Any] = {}
+            points_upserted = 0
+            if create_points:
+                for col in metric_cols:
+                    ext_id = f"csv:{source_name}:{str(col).strip()}"
+                    cur.execute(
+                        """
+                        INSERT INTO points (site_id, external_id, description)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (site_id, external_id) DO UPDATE SET
+                            description = EXCLUDED.description
+                        RETURNING id
+                        """,
+                        (site_uuid, ext_id, f"CSV source {source_name} column {col}"),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        point_ids[str(col)] = row["id"]
+                        points_upserted += 1
+            else:
+                ext_ids = [f"csv:{source_name}:{str(col).strip()}" for col in metric_cols]
+                cur.execute(
+                    "SELECT id, external_id FROM points WHERE site_id=%s AND external_id = ANY(%s)",
+                    (site_uuid, ext_ids),
+                )
+                existing = {r["external_id"]: r["id"] for r in cur.fetchall() or []}
+                for col in metric_cols:
+                    point_ids[str(col)] = existing.get(f"csv:{source_name}:{str(col).strip()}")
+
+            rows = _build_rows_from_dataframe(
+                df=df,
+                metric_cols=metric_cols,
+                point_ids=point_ids,
+                site_id_text=site_id_text,
+            )
+            inserted = _insert_timeseries_rows(cur, rows)
+            conn.commit()
+    return {"rows_inserted": inserted, "points_upserted": points_upserted}
 
 
 def run_csv_ingest_once(
@@ -199,21 +358,21 @@ def run_csv_ingest_once(
                             point_ids[str(col)] = existing.get(
                                 f"csv:{csv_path.stem}:{str(col).strip()}"
                             )
+                        unmapped_cols = [str(col) for col in metric_cols if point_ids.get(str(col)) is None]
+                        if unmapped_cols:
+                            log.info(
+                                "CSV source %s site=%s has no mapped points for columns: %s",
+                                csv_path.stem,
+                                site_id_text,
+                                ", ".join(unmapped_cols),
+                            )
 
-                    rows: list[tuple] = []
-                    for _, item in df.iterrows():
-                        ts = item["__ts"]
-                        if hasattr(ts, "to_pydatetime"):
-                            ts = ts.to_pydatetime()
-                        for col in metric_cols:
-                            point_id = point_ids.get(str(col))
-                            if point_id is None:
-                                continue
-                            try:
-                                val = float(item[col])
-                            except (TypeError, ValueError):
-                                continue
-                            rows.append((ts, site_id_text, point_id, val, None))
+                    rows = _build_rows_from_dataframe(
+                        df=df,
+                        metric_cols=metric_cols,
+                        point_ids=point_ids,
+                        site_id_text=site_id_text,
+                    )
 
                     inserted = _insert_timeseries_rows(cur, rows)
                     last_ts = max(df["__ts"]).to_pydatetime()

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from openfdd_stack.platform.config import get_config_overlay, set_config_overlay
 from openfdd_stack.platform.default_config import DEFAULT_PLATFORM_CONFIG
+from openfdd_stack.platform.driver_profile import load_driver_profile
 from openfdd_stack.platform.graph_model import (
     get_config_from_graph,
     set_config_in_graph,
@@ -107,7 +109,7 @@ class ConfigBody(BaseModel):
     )
     onboard_building_ids: str | None = Field(
         None,
-        description="Comma-separated building IDs to ingest from Onboard",
+        description="Building selectors as CSV (66,67), bracketed list ([66,67]), or JSON array of IDs/names (e.g. [\"Office Building\"])",
     )
     onboard_scrape_interval_min: int | None = Field(
         None, description="Onboard incremental scrape interval (minutes)"
@@ -118,7 +120,7 @@ class ConfigBody(BaseModel):
     onboard_backfill_end: str | None = Field(
         None, description="Onboard backfill window end timestamp (ISO-8601)"
     )
-    onboard_site_id_strategy: str | None = Field(
+    onboard_site_id_strategy: Literal["default", "onboard-building-id"] | None = Field(
         None,
         description='Site mapping strategy for Onboard buildings ("default" or "onboard-building-id")',
     )
@@ -182,6 +184,25 @@ def get_config():
     if from_graph:
         return _normalize_config_for_display(from_graph)
     return _normalize_config_for_display(dict(DEFAULT_PLATFORM_CONFIG))
+
+
+@router.get("/driver-profile", summary="Get driver bootstrap profile")
+def get_driver_profile():
+    drivers, path, exists = load_driver_profile()
+    return {
+        "profile_path": str(path),
+        "profile_exists": exists,
+        "drivers": drivers,
+        "services": {
+            "bacnet-server": bool(drivers.get("bacnet", True)),
+            "bacnet-scraper": bool(drivers.get("bacnet", True)),
+            "fdd-loop": bool(drivers.get("fdd", True)),
+            "weather-scraper": bool(drivers.get("weather", True)),
+            "onboard-scraper": bool(drivers.get("onboard", False)),
+            "csv-scraper": bool(drivers.get("csv", False)),
+            "host-stats": bool(drivers.get("host_stats", True)),
+        },
+    }
 
 
 @router.put("", summary="Set platform config (RDF + TTL)")

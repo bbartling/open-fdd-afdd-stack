@@ -6,7 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from openfdd_stack.platform.drivers.onboard import OnboardClient, parse_building_filters
 from _onboard_cli import fallback_api_key_from_stack_env

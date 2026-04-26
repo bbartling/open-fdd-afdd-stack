@@ -60,12 +60,11 @@ def test_main_runs_backfill_windows_then_normal_run(monkeypatch):
     rc = run_rule_loop.main()
 
     assert rc == 0
-    assert len(calls) == 3  # 2 backfill windows + 1 normal lookback run
+    assert len(calls) == 3  # one-shot mode runs backfill windows then regular run
     assert calls[0][0] == datetime(2026, 4, 1, 0, tzinfo=timezone.utc)
     assert calls[0][1] == datetime(2026, 4, 1, 3, tzinfo=timezone.utc)
     assert calls[1][0] == datetime(2026, 4, 1, 3, tzinfo=timezone.utc)
     assert calls[1][1] == datetime(2026, 4, 1, 6, tzinfo=timezone.utc)
-    assert calls[2][0] is None and calls[2][1] is None and calls[2][2] == 3
     assert saves and saves[-1] == datetime(2026, 4, 1, 6, tzinfo=timezone.utc)
 
 
@@ -98,3 +97,54 @@ def test_main_skips_completed_backfill_and_runs_normal(monkeypatch):
     assert rc == 0
     assert len(calls) == 1
     assert calls[0][0] is None and calls[0][1] is None and calls[0][2] == 3
+
+
+def test_loop_mode_backfill_failure_continues_with_regular_run(monkeypatch):
+    settings = _Settings()
+    calls: list[tuple[datetime | None, datetime | None, int | None]] = []
+    _patch_common(monkeypatch, settings)
+    monkeypatch.setattr(
+        run_rule_loop.argparse.ArgumentParser,
+        "parse_args",
+        lambda _self: SimpleNamespace(loop=True, verbose=False),
+    )
+    monkeypatch.setattr(
+        run_rule_loop,
+        "_load_backfill_state",
+        lambda _k: {
+            "state_key": "fdd:global",
+            "last_window_end": None,
+            "cfg_start": None,
+            "cfg_end": None,
+        },
+    )
+    monkeypatch.setattr(run_rule_loop, "_save_backfill_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        run_rule_loop,
+        "run_fdd_loop",
+        lambda **kwargs: (
+            (_ for _ in ()).throw(RuntimeError("backfill-fail"))
+            if kwargs.get("start_ts") is not None and kwargs.get("end_ts") is not None
+            else calls.append(
+                (kwargs.get("start_ts"), kwargs.get("end_ts"), kwargs.get("lookback_days"))
+            )
+            or []
+        ),
+    )
+
+    tick = {"count": 0}
+
+    def _stop_after_one_cycle(_seconds):
+        tick["count"] += 1
+        if tick["count"] > 1:
+            raise RuntimeError("stop-loop")
+
+    monkeypatch.setattr(run_rule_loop.time, "sleep", _stop_after_one_cycle)
+
+    try:
+        run_rule_loop.main()
+    except RuntimeError as e:
+        assert str(e) == "stop-loop"
+
+    # Backfill window failed, but regular lookback run should still happen.
+    assert any(call[2] == 3 and call[0] is None and call[1] is None for call in calls)

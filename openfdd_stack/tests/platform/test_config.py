@@ -146,6 +146,11 @@ def test_default_platform_config_includes_onboard_keys():
     assert "onboard_backfill_end" in DEFAULT_PLATFORM_CONFIG
     assert "onboard_site_id_strategy" in DEFAULT_PLATFORM_CONFIG
     assert "onboard_create_points" in DEFAULT_PLATFORM_CONFIG
+
+
+def test_default_platform_config_includes_csv_keys():
+    from openfdd_stack.platform.default_config import DEFAULT_PLATFORM_CONFIG
+
     assert "csv_enabled" in DEFAULT_PLATFORM_CONFIG
     assert "csv_sources" in DEFAULT_PLATFORM_CONFIG
     assert "csv_scrape_interval_min" in DEFAULT_PLATFORM_CONFIG

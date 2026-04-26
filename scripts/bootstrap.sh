@@ -222,6 +222,8 @@ driver_services_for_mode() {
     if [[ "$use_bacnet" == "true" ]]; then
       svc="$svc bacnet-server bacnet-scraper"
     fi
+    [[ "$use_onboard" == "true" ]] && svc="$svc onboard-scraper"
+    [[ "$use_csv" == "true" ]] && svc="$svc csv-scraper"
   fi
   echo "$svc"
 }
@@ -2783,25 +2785,31 @@ fi
 
 if [[ "$MODE" == "collector" ]]; then
   svc="$(driver_services_for_mode "collector")"
+  # shellcheck disable=SC2206
+  svc_arr=($svc)
   if echo " $svc " | grep -q " bacnet-scraper "; then
     ensure_collector_mode_bacnet_server_url
     echo "=== Starting collector mode (DB + BACnet server + scraper) ==="
   else
     echo "=== Starting collector mode (DB only; bacnet disabled by driver profile) ==="
   fi
-  $WITH_GRAFANA && svc="$svc grafana"
-  $dc "${DC_PROFILE[@]}" up -d --build $svc
+  $WITH_GRAFANA && svc_arr+=("grafana")
+  $dc "${DC_PROFILE[@]}" up -d --build "${svc_arr[@]}"
 elif [[ "$MODE" == "model" ]]; then
   echo "=== Starting model mode (DB + API + frontend + caddy) ==="
   $dc "${DC_PROFILE[@]}" up -d --build db api frontend caddy
 elif [[ "$MODE" == "engine" ]]; then
   svc="$(driver_services_for_mode "engine")"
+  # shellcheck disable=SC2206
+  svc_arr=($svc)
   echo "=== Starting engine mode (profile-driven services): $svc ==="
-  $dc "${DC_PROFILE[@]}" up -d --build $svc
+  $dc "${DC_PROFILE[@]}" up -d --build "${svc_arr[@]}"
 else
   svc="$(driver_services_for_mode "full")"
+  # shellcheck disable=SC2206
+  svc_arr=($svc)
   echo "=== Building and starting full stack (profile-driven services): $svc ==="
-  $dc "${DC_PROFILE[@]}" up -d --build $svc
+  $dc "${DC_PROFILE[@]}" up -d --build "${svc_arr[@]}"
 fi
 
 bootstrap_compose_force_recreate_if_needed

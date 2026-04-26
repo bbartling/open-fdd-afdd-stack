@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -69,10 +70,10 @@ class ConfigBody(BaseModel):
     fdd_backfill_enabled: bool | None = Field(
         None, description="Enable one-pass FDD historical backfill run"
     )
-    fdd_backfill_start: str | None = Field(
+    fdd_backfill_start: datetime | None = Field(
         None, description="Historical FDD backfill start timestamp (ISO-8601)"
     )
-    fdd_backfill_end: str | None = Field(
+    fdd_backfill_end: datetime | None = Field(
         None, description="Historical FDD backfill end timestamp (ISO-8601, optional)"
     )
     fdd_backfill_step_hours: int | None = Field(
@@ -114,10 +115,10 @@ class ConfigBody(BaseModel):
     onboard_scrape_interval_min: int | None = Field(
         None, description="Onboard incremental scrape interval (minutes)"
     )
-    onboard_backfill_start: str | None = Field(
+    onboard_backfill_start: datetime | None = Field(
         None, description="Onboard backfill window start timestamp (ISO-8601)"
     )
-    onboard_backfill_end: str | None = Field(
+    onboard_backfill_end: datetime | None = Field(
         None, description="Onboard backfill window end timestamp (ISO-8601)"
     )
     onboard_site_id_strategy: Literal["default", "onboard-building-id"] | None = Field(
@@ -136,10 +137,10 @@ class ConfigBody(BaseModel):
     csv_scrape_interval_min: int | None = Field(
         None, description="CSV scraper loop interval (minutes)"
     )
-    csv_backfill_start: str | None = Field(
+    csv_backfill_start: datetime | None = Field(
         None, description="CSV backfill start timestamp (ISO-8601)"
     )
-    csv_backfill_end: str | None = Field(
+    csv_backfill_end: datetime | None = Field(
         None, description="CSV backfill end timestamp (ISO-8601)"
     )
     csv_create_points: bool | None = Field(
@@ -186,7 +187,18 @@ def get_config():
     return _normalize_config_for_display(dict(DEFAULT_PLATFORM_CONFIG))
 
 
-@router.get("/driver-profile", summary="Get driver bootstrap profile")
+class DriverProfileStatus(BaseModel):
+    profile_path: str
+    profile_exists: bool
+    drivers: dict[str, bool]
+    services: dict[str, bool]
+
+
+@router.get(
+    "/driver-profile",
+    summary="Get driver bootstrap profile",
+    response_model=DriverProfileStatus,
+)
 def get_driver_profile():
     drivers, path, exists = load_driver_profile()
     return {

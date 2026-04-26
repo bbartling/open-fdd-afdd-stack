@@ -116,18 +116,39 @@ if [[ -f "$STACK_DIR/.env" ]]; then
   [[ -n "${OFDD_LOG_MAX_FILES:-}" ]] && LOG_MAX_FILES="${OFDD_LOG_MAX_FILES}"
 fi
 
-driver_profile_enabled() {
-  local key="$1"
-  local default_value="$2"
-  python3 - "$DRIVER_PROFILE_FILE" "$key" "$default_value" <<'PY'
+DRIVER_PROFILE_CACHE_LOADED=0
+USE_BACNET=true
+USE_FDD=true
+USE_WEATHER=true
+USE_ONBOARD=false
+USE_CSV=false
+USE_HOST_STATS=true
+
+load_driver_profile_cache() {
+  [[ "$DRIVER_PROFILE_CACHE_LOADED" -eq 1 ]] && return 0
+  while IFS='=' read -r k v; do
+    case "$k" in
+      bacnet) USE_BACNET="$v" ;;
+      fdd) USE_FDD="$v" ;;
+      weather) USE_WEATHER="$v" ;;
+      onboard) USE_ONBOARD="$v" ;;
+      csv) USE_CSV="$v" ;;
+      host_stats) USE_HOST_STATS="$v" ;;
+    esac
+  done < <(python3 - "$DRIVER_PROFILE_FILE" <<'PY'
 import pathlib
 import re
 import sys
 
 profile_path = pathlib.Path(sys.argv[1])
-key = sys.argv[2]
-default_raw = str(sys.argv[3]).strip().lower()
-default = default_raw in {"1", "true", "yes", "on"}
+defaults = {
+    "bacnet": True,
+    "fdd": True,
+    "weather": True,
+    "onboard": False,
+    "csv": False,
+    "host_stats": True,
+}
 
 def parse_bool(v):
     if isinstance(v, bool):
@@ -141,64 +162,76 @@ def parse_bool(v):
         return False
     return None
 
-if not profile_path.exists():
-    print("true" if default else "false")
-    raise SystemExit(0)
-
-text = profile_path.read_text(encoding="utf-8")
-
-try:
-    import yaml  # type: ignore
-    data = yaml.safe_load(text) or {}
-    drivers = data.get("drivers", {}) if isinstance(data, dict) else {}
-    val = parse_bool(drivers.get(key))
-    if val is None:
-        val = default
-    print("true" if val else "false")
-    raise SystemExit(0)
-except Exception:
-    pass
-
-# Lightweight fallback parser for:
-# drivers:
-#   key: true|false|yes|no|1|0|on|off
-in_drivers = False
-driver_val = None
-for raw in text.splitlines():
-    line = raw.rstrip()
-    if not line.strip() or line.lstrip().startswith("#"):
-        continue
-    if re.match(r"^\s*drivers\s*:\s*$", line):
-        in_drivers = True
-        continue
-    if in_drivers and re.match(r"^\S", line):
+vals = dict(defaults)
+if profile_path.exists():
+    text = profile_path.read_text(encoding="utf-8")
+    parsed = False
+    try:
+        import yaml  # type: ignore
+        data = yaml.safe_load(text) or {}
+        drivers = data.get("drivers", {}) if isinstance(data, dict) else {}
+        if isinstance(drivers, dict):
+            for k in defaults:
+                b = parse_bool(drivers.get(k))
+                if b is not None:
+                    vals[k] = b
+        parsed = True
+    except Exception:
+        pass
+    if not parsed:
         in_drivers = False
-    if not in_drivers:
-        continue
-    m = re.match(r"^\s*" + re.escape(key) + r"\s*:\s*(.*?)\s*$", line)
-    if not m:
-        continue
-    token = m.group(1).split("#", 1)[0].strip().strip('"').strip("'")
-    parsed = parse_bool(token)
-    if parsed is not None:
-        driver_val = parsed
-    break
+        for raw in text.splitlines():
+            line = raw.rstrip()
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            if re.match(r"^\s*drivers\s*:\s*$", line):
+                in_drivers = True
+                continue
+            if in_drivers and re.match(r"^\S", line):
+                in_drivers = False
+            if not in_drivers:
+                continue
+            for key in defaults:
+                m = re.match(r"^\s*" + re.escape(key) + r"\s*:\s*(.*?)\s*$", line)
+                if not m:
+                    continue
+                token = m.group(1).split("#", 1)[0].strip().strip('"').strip("'")
+                b = parse_bool(token)
+                if b is not None:
+                    vals[key] = b
+                break
 
-if driver_val is None:
-    driver_val = default
-print("true" if driver_val else "false")
+for k, v in vals.items():
+    print(f"{k}={'true' if v else 'false'}")
 PY
+)
+  DRIVER_PROFILE_CACHE_LOADED=1
+}
+
+driver_profile_enabled() {
+  local key="$1"
+  load_driver_profile_cache
+  case "$key" in
+    bacnet) echo "$USE_BACNET" ;;
+    fdd) echo "$USE_FDD" ;;
+    weather) echo "$USE_WEATHER" ;;
+    onboard) echo "$USE_ONBOARD" ;;
+    csv) echo "$USE_CSV" ;;
+    host_stats) echo "$USE_HOST_STATS" ;;
+    *) echo "false" ;;
+  esac
 }
 
 driver_services_for_mode() {
+  load_driver_profile_cache
   local mode="$1"
   local use_bacnet use_fdd use_weather use_onboard use_csv use_host_stats
-  use_bacnet="$(driver_profile_enabled "bacnet" "true")"
-  use_fdd="$(driver_profile_enabled "fdd" "true")"
-  use_weather="$(driver_profile_enabled "weather" "true")"
-  use_onboard="$(driver_profile_enabled "onboard" "false")"
-  use_csv="$(driver_profile_enabled "csv" "false")"
-  use_host_stats="$(driver_profile_enabled "host_stats" "true")"
+  use_bacnet="$USE_BACNET"
+  use_fdd="$USE_FDD"
+  use_weather="$USE_WEATHER"
+  use_onboard="$USE_ONBOARD"
+  use_csv="$USE_CSV"
+  use_host_stats="$USE_HOST_STATS"
 
   local svc=""
   if [[ "$mode" == "full" ]]; then
@@ -2070,14 +2103,38 @@ verify_code() {
     pytest_target="openfdd_stack/tests/integration"
   fi
 
-  if (cd "$REPO_ROOT" && unset OFDD_API_KEY OFDD_CADDY_INTERNAL_SECRET OFDD_APP_USER OFDD_APP_USER_HASH OFDD_JWT_SECRET OFDD_ACCESS_TOKEN_MINUTES OFDD_REFRESH_TOKEN_DAYS && $py -m pytest $pytest_target -v --tb=short); then
+  local -a pytest_env_unset=(
+    -u OFDD_API_KEY
+    -u OFDD_CADDY_INTERNAL_SECRET
+    -u OFDD_APP_USER
+    -u OFDD_APP_USER_HASH
+    -u OFDD_JWT_SECRET
+    -u OFDD_ACCESS_TOKEN_MINUTES
+    -u OFDD_REFRESH_TOKEN_DAYS
+    -u OFDD_ONBOARD_ENABLED
+    -u OFDD_ONBOARD_API_BASE_URL
+    -u OFDD_ONBOARD_API_KEY
+    -u OFDD_ONBOARD_BUILDING_IDS
+    -u OFDD_ONBOARD_SCRAPE_INTERVAL_MIN
+    -u OFDD_ONBOARD_BACKFILL_START
+    -u OFDD_ONBOARD_BACKFILL_END
+    -u OFDD_ONBOARD_SITE_ID_STRATEGY
+    -u OFDD_ONBOARD_CREATE_POINTS
+    -u OFDD_CSV_ENABLED
+    -u OFDD_CSV_SOURCES
+    -u OFDD_CSV_SCRAPE_INTERVAL_MIN
+    -u OFDD_CSV_BACKFILL_START
+    -u OFDD_CSV_BACKFILL_END
+    -u OFDD_CSV_CREATE_POINTS
+  )
+  if (cd "$REPO_ROOT" && env "${pytest_env_unset[@]}" "$py" -m pytest $pytest_target -v --tb=short); then
     echo "Backend: OK"
   else
     echo "Backend: FAIL or skipped."
     echo "  Fix: from repo root create a venv and install dev deps (pytest is in [project.optional-dependencies].dev):"
     echo "    python3 -m venv .venv && . .venv/bin/activate && pip install -U pip && pip install -e \".[dev]\""
     echo "  This script uses .venv/bin/python when present; otherwise it falls back to python3 (often missing pytest)."
-    echo "  Manual rerun: cd \"$REPO_ROOT\" && unset OFDD_API_KEY OFDD_CADDY_INTERNAL_SECRET && $py -m pytest $pytest_target -v --tb=short"
+    echo "  Manual rerun: cd \"$REPO_ROOT\" && env ${pytest_env_unset[*]} $py -m pytest $pytest_target -v --tb=short"
     failed=1
   fi
   echo ""

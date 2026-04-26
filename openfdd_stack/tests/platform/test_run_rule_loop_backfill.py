@@ -7,11 +7,12 @@ from openfdd_stack.platform.drivers import run_rule_loop
 
 
 class _Settings:
-    open_meteo_enabled = False
-    fdd_backfill_enabled = True
-    fdd_backfill_start = "2026-04-01T00:00:00Z"
-    fdd_backfill_end = "2026-04-01T06:00:00Z"
-    fdd_backfill_step_hours = 3
+    def __init__(self):
+        self.open_meteo_enabled = False
+        self.fdd_backfill_enabled = True
+        self.fdd_backfill_start = "2026-04-01T00:00:00Z"
+        self.fdd_backfill_end = "2026-04-01T06:00:00Z"
+        self.fdd_backfill_step_hours = 3
 
 
 def _patch_common(monkeypatch, settings: object):
@@ -102,6 +103,7 @@ def test_main_skips_completed_backfill_and_runs_normal(monkeypatch):
 def test_loop_mode_backfill_failure_continues_with_regular_run(monkeypatch):
     settings = _Settings()
     calls: list[tuple[datetime | None, datetime | None, int | None]] = []
+    saved_states: list[tuple] = []
     _patch_common(monkeypatch, settings)
     monkeypatch.setattr(
         run_rule_loop.argparse.ArgumentParser,
@@ -118,19 +120,19 @@ def test_loop_mode_backfill_failure_continues_with_regular_run(monkeypatch):
             "cfg_end": None,
         },
     )
-    monkeypatch.setattr(run_rule_loop, "_save_backfill_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         run_rule_loop,
-        "run_fdd_loop",
-        lambda **kwargs: (
-            (_ for _ in ()).throw(RuntimeError("backfill-fail"))
-            if kwargs.get("start_ts") is not None and kwargs.get("end_ts") is not None
-            else calls.append(
-                (kwargs.get("start_ts"), kwargs.get("end_ts"), kwargs.get("lookback_days"))
-            )
-            or []
-        ),
+        "_save_backfill_state",
+        lambda *args, **_kwargs: saved_states.append(args),
     )
+
+    def fake_run_fdd_loop(**kwargs):
+        if kwargs.get("start_ts") is not None and kwargs.get("end_ts") is not None:
+            raise RuntimeError("backfill-fail")
+        calls.append((kwargs.get("start_ts"), kwargs.get("end_ts"), kwargs.get("lookback_days")))
+        return []
+
+    monkeypatch.setattr(run_rule_loop, "run_fdd_loop", fake_run_fdd_loop)
 
     tick = {"count": 0}
 
@@ -148,3 +150,4 @@ def test_loop_mode_backfill_failure_continues_with_regular_run(monkeypatch):
 
     # Backfill window failed, but regular lookback run should still happen.
     assert any(call[2] == 3 and call[0] is None and call[1] is None for call in calls)
+    assert saved_states == []

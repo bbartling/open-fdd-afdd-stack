@@ -26,6 +26,8 @@ class CsvSource:
 def parse_iso_ts(value: str | None) -> datetime | None:
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
     raw = str(value).strip()
     if not raw:
         return None
@@ -208,6 +210,56 @@ def _build_rows_from_dataframe(
     )
 
 
+def _resolve_or_create_points(
+    cur,
+    *,
+    site_uuid,
+    metric_cols: list[Any],
+    source_name: str,
+    create_points: bool,
+    site_id_text: str,
+    log: logging.Logger | None = None,
+) -> tuple[dict[str, Any], int]:
+    point_ids: dict[str, Any] = {}
+    points_upserted = 0
+    if create_points:
+        for col in metric_cols:
+            ext_id = f"csv:{source_name}:{str(col).strip()}"
+            cur.execute(
+                """
+                INSERT INTO points (site_id, external_id, description)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (site_id, external_id) DO UPDATE SET
+                    description = EXCLUDED.description
+                RETURNING id
+                """,
+                (site_uuid, ext_id, f"CSV source {source_name} column {col}"),
+            )
+            row = cur.fetchone()
+            if row:
+                point_ids[str(col)] = row["id"]
+                points_upserted += 1
+    else:
+        ext_ids = [f"csv:{source_name}:{str(col).strip()}" for col in metric_cols]
+        cur.execute(
+            "SELECT id, external_id FROM points WHERE site_id=%s AND external_id = ANY(%s)",
+            (site_uuid, ext_ids),
+        )
+        existing = {r["external_id"]: r["id"] for r in cur.fetchall() or []}
+        for col in metric_cols:
+            point_ids[str(col)] = existing.get(f"csv:{source_name}:{str(col).strip()}")
+        if log:
+            unmapped_cols = [str(col) for col in metric_cols if point_ids.get(str(col)) is None]
+            if unmapped_cols:
+                log.info(
+                    "CSV source %s site=%s has no mapped points for columns: %s",
+                    source_name,
+                    site_id_text,
+                    ", ".join(unmapped_cols),
+                )
+    return point_ids, points_upserted
+
+
 def ingest_csv_dataframe(
     *,
     site_id: str,
@@ -230,34 +282,14 @@ def ingest_csv_dataframe(
     site_id_text = str(site_uuid)
     with get_conn() as conn:
         with conn.cursor() as cur:
-            point_ids: dict[str, Any] = {}
-            points_upserted = 0
-            if create_points:
-                for col in metric_cols:
-                    ext_id = f"csv:{source_name}:{str(col).strip()}"
-                    cur.execute(
-                        """
-                        INSERT INTO points (site_id, external_id, description)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (site_id, external_id) DO UPDATE SET
-                            description = EXCLUDED.description
-                        RETURNING id
-                        """,
-                        (site_uuid, ext_id, f"CSV source {source_name} column {col}"),
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        point_ids[str(col)] = row["id"]
-                        points_upserted += 1
-            else:
-                ext_ids = [f"csv:{source_name}:{str(col).strip()}" for col in metric_cols]
-                cur.execute(
-                    "SELECT id, external_id FROM points WHERE site_id=%s AND external_id = ANY(%s)",
-                    (site_uuid, ext_ids),
-                )
-                existing = {r["external_id"]: r["id"] for r in cur.fetchall() or []}
-                for col in metric_cols:
-                    point_ids[str(col)] = existing.get(f"csv:{source_name}:{str(col).strip()}")
+            point_ids, points_upserted = _resolve_or_create_points(
+                cur,
+                site_uuid=site_uuid,
+                metric_cols=metric_cols,
+                source_name=source_name,
+                create_points=create_points,
+                site_id_text=site_id_text,
+            )
 
             rows = _build_rows_from_dataframe(
                 df=df,
@@ -304,10 +336,14 @@ def run_csv_ingest_once(
             if df.empty:
                 continue
 
-            ts_col = _infer_timestamp_column([str(c) for c in df.columns])
-            df["__ts"] = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
-            df = df[df["__ts"].notna()].copy()
-            if df.empty:
+            try:
+                ts_col = _infer_timestamp_column([str(c) for c in df.columns])
+                df["__ts"] = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
+                df = df[df["__ts"].notna()].copy()
+                if df.empty:
+                    continue
+            except (ValueError, TypeError) as e:
+                log.warning("Skipping malformed CSV %s: %s", csv_path, e)
                 continue
 
             state_key = _source_key(source)
@@ -328,44 +364,15 @@ def run_csv_ingest_once(
 
                     metric_cols = [c for c in df.columns if c not in (ts_col, "__ts")]
                     site_id_text = str(site_uuid)
-                    point_ids: dict[str, Any] = {}
-                    points_upserted = 0
-                    if create_points:
-                        for col in metric_cols:
-                            ext_id = f"csv:{csv_path.stem}:{str(col).strip()}"
-                            cur.execute(
-                                """
-                                INSERT INTO points (site_id, external_id, description)
-                                VALUES (%s, %s, %s)
-                                ON CONFLICT (site_id, external_id) DO UPDATE SET
-                                    description = EXCLUDED.description
-                                RETURNING id
-                                """,
-                                (site_uuid, ext_id, f"CSV source {csv_path.name} column {col}"),
-                            )
-                            row = cur.fetchone()
-                            if row:
-                                point_ids[str(col)] = row["id"]
-                                points_upserted += 1
-                    else:
-                        ext_ids = [f"csv:{csv_path.stem}:{str(col).strip()}" for col in metric_cols]
-                        cur.execute(
-                            "SELECT id, external_id FROM points WHERE site_id=%s AND external_id = ANY(%s)",
-                            (site_uuid, ext_ids),
-                        )
-                        existing = {r["external_id"]: r["id"] for r in cur.fetchall() or []}
-                        for col in metric_cols:
-                            point_ids[str(col)] = existing.get(
-                                f"csv:{csv_path.stem}:{str(col).strip()}"
-                            )
-                        unmapped_cols = [str(col) for col in metric_cols if point_ids.get(str(col)) is None]
-                        if unmapped_cols:
-                            log.info(
-                                "CSV source %s site=%s has no mapped points for columns: %s",
-                                csv_path.stem,
-                                site_id_text,
-                                ", ".join(unmapped_cols),
-                            )
+                    point_ids, points_upserted = _resolve_or_create_points(
+                        cur,
+                        site_uuid=site_uuid,
+                        metric_cols=metric_cols,
+                        source_name=csv_path.stem,
+                        create_points=create_points,
+                        site_id_text=site_id_text,
+                        log=log,
+                    )
 
                     rows = _build_rows_from_dataframe(
                         df=df,

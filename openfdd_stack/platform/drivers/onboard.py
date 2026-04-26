@@ -20,6 +20,8 @@ def parse_iso_ts(value: str | None) -> datetime | None:
     """Parse ISO-8601 string and normalize to UTC."""
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
     raw = value.strip()
     if not raw:
         return None
@@ -73,24 +75,50 @@ class OnboardClient:
     def _headers(self) -> dict[str, str]:
         return {"X-OB-Api": self.api_key, "Content-Type": "application/json"}
 
+    def _request_with_retry(self, method: str, path: str, *, body: dict[str, Any] | None = None) -> Any:
+        url = f"{self.base_url.rstrip('/')}{path}"
+        max_attempts = 4
+        backoff_sec = 1.0
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if method == "GET":
+                    resp = requests.get(url, headers=self._headers(), timeout=self.timeout_sec)
+                else:
+                    resp = requests.post(
+                        url,
+                        headers=self._headers(),
+                        json=body,
+                        timeout=self.timeout_sec,
+                    )
+                if resp.status_code == 429 or 500 <= resp.status_code < 600:
+                    retry_after = resp.headers.get("Retry-After")
+                    sleep_s = float(retry_after) if retry_after else backoff_sec
+                    if attempt < max_attempts:
+                        import time
+
+                        time.sleep(max(0.1, sleep_s))
+                        backoff_sec = min(backoff_sec * 2, 10.0)
+                        continue
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as e:
+                last_exc = e
+                if attempt >= max_attempts:
+                    break
+                import time
+
+                time.sleep(backoff_sec)
+                backoff_sec = min(backoff_sec * 2, 10.0)
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(f"Onboard {method} request failed for {path}")
+
     def _get(self, path: str) -> Any:
-        resp = requests.get(
-            f"{self.base_url.rstrip('/')}{path}",
-            headers=self._headers(),
-            timeout=self.timeout_sec,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return self._request_with_retry("GET", path)
 
     def _post(self, path: str, body: dict[str, Any]) -> Any:
-        resp = requests.post(
-            f"{self.base_url.rstrip('/')}{path}",
-            headers=self._headers(),
-            json=body,
-            timeout=self.timeout_sec,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return self._request_with_retry("POST", path, body=body)
 
     def get_buildings(self, building_filters: list[str]) -> list[dict[str, Any]]:
         data = self._get("/buildings")
@@ -342,6 +370,7 @@ def run_onboard_ingest_once(
                             building_id,
                         )
                         continue
+                    conn.commit()
 
                     point_ids = list(point_map.keys())
                     batches = [point_ids[i : i + 200] for i in range(0, len(point_ids), 200)]
@@ -377,22 +406,37 @@ def run_onboard_ingest_once(
                         for win_start, win_end in _window_chunks(
                             inc_start, inc_end, step_minutes=step_min
                         ):
-                            for batch in batches:
-                                q = client.query_v2(win_start, win_end, batch)
-                                rows = _extract_rows_from_query_result(point_map, site_uuid, q)
-                                total_rows_this_building += _insert_timeseries_rows(cur, rows)
+                            try:
+                                for batch in batches:
+                                    q = client.query_v2(win_start, win_end, batch)
+                                    rows = _extract_rows_from_query_result(point_map, site_uuid, q)
+                                    total_rows_this_building += _insert_timeseries_rows(cur, rows)
+                                win_backfill_done = (
+                                    bool(state.get("backfill_done"))
+                                    if backfill_start is None
+                                    else win_end >= (
+                                        effective_backfill_end
+                                        if effective_backfill_end is not None
+                                        else now_utc
+                                    )
+                                )
+                                _save_state(
+                                    cur,
+                                    state_key,
+                                    win_backfill_done,
+                                    win_end,
+                                )
+                                conn.commit()
+                            except Exception:
+                                conn.rollback()
+                                raise
 
                     if backfill_start is None:
                         backfill_done = bool(state.get("backfill_done"))
                     else:
                         target_end = effective_backfill_end if effective_backfill_end is not None else now_utc
                         backfill_done = inc_end >= target_end
-                    _save_state(
-                        cur,
-                        state_key,
-                        backfill_done,
-                        inc_end,
-                    )
+                    _save_state(cur, state_key, backfill_done, inc_end)
                     summary["rows_inserted"] += total_rows_this_building
                 conn.commit()
             except Exception:

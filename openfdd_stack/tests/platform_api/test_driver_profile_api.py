@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -10,7 +9,7 @@ from openfdd_stack.platform.api.main import app
 client = TestClient(app)
 
 
-def test_driver_profile_endpoint_returns_status():
+def test_driver_profile_endpoint_returns_status(tmp_path):
     with patch(
         "openfdd_stack.platform.api.config.load_driver_profile",
         return_value=(
@@ -22,7 +21,7 @@ def test_driver_profile_endpoint_returns_status():
                 "csv": True,
                 "host_stats": True,
             },
-            Path("/tmp/drivers.yaml"),
+            tmp_path / "drivers.yaml",
             True,
         ),
     ):

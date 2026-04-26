@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -13,6 +14,7 @@ from openfdd_stack.platform.drivers.csv_driver import (
 )
 
 router = APIRouter(prefix="/csv", tags=["csv"])
+MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class CsvUploadForm(BaseModel):
@@ -53,11 +55,27 @@ async def upload_csv(
             },
         ) from e
 
-    raw = await file.read()
-    if not raw:
+    if file.size is not None and int(file.size) > MAX_CSV_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CSV file too large (max {MAX_CSV_UPLOAD_BYTES} bytes)",
+        )
+    raw = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        raw.extend(chunk)
+        if len(raw) > MAX_CSV_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"CSV file too large (max {MAX_CSV_UPLOAD_BYTES} bytes)",
+            )
+    raw_bytes = bytes(raw)
+    if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded CSV file is empty")
     try:
-        text = raw.decode("utf-8-sig")
+        text = raw_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise HTTPException(
             status_code=400,
@@ -67,7 +85,7 @@ async def upload_csv(
     try:
         import pandas as pd
 
-        df = pd.read_csv(io.StringIO(text))
+        df = await asyncio.to_thread(pd.read_csv, io.StringIO(text))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not parse CSV: {e}") from e
 
@@ -94,7 +112,8 @@ async def upload_csv(
     if form.dry_run:
         return {"ok": True, "validated": True, "preview": preview}
 
-    result = ingest_csv_dataframe(
+    result = await asyncio.to_thread(
+        ingest_csv_dataframe,
         site_id=form.site_id,
         df=df,
         source_name=form.source_name or file.filename or "uploaded",

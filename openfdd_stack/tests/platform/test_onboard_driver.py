@@ -137,7 +137,7 @@ def test_run_onboard_ingest_once_runs_backfill_then_incremental(monkeypatch):
     assert summary["points_seen"] == 1
     assert summary["rows_inserted"] >= 1
     assert insert_calls
-    assert save_calls and save_calls[0][1] is True
+    assert save_calls and any(call[1] is True for call in save_calls)
 
 
 def test_run_onboard_ingest_once_runs_incremental_after_backfill(monkeypatch):

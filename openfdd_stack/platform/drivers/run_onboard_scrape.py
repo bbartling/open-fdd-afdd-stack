@@ -139,7 +139,7 @@ def main() -> int:
         create_points = bool(
             _cfg_value(cfg, "onboard_create_points", settings.onboard_create_points)
         )
-        default_site_id = settings.bacnet_site_id or "default"
+        default_site_id = "default"
 
         try:
             building_filters = parse_building_filters(building_ids_raw)

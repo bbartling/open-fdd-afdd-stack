@@ -42,7 +42,8 @@ export function CsvImportPage() {
       body.append("file", file);
       body.append("site_id", siteId);
       body.append("create_points", String(createPoints));
-      body.append("source_name", file.name.replace(/\.csv$/i, ""));
+      const trimmedSource = file.name.replace(/\.csv$/i, "").trim();
+      body.append("source_name", trimmedSource || file.name || "uploaded");
       const resp = await uploadCsvFile(body);
       setResult(resp);
     } catch (e) {
@@ -72,8 +73,9 @@ export function CsvImportPage() {
 
       <div className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Site ID</label>
+          <label htmlFor="csv-site-id" className="mb-1 block text-xs font-medium text-muted-foreground">Site ID</label>
           <input
+            id="csv-site-id"
             value={siteId}
             onChange={(e) => setSiteId(e.target.value)}
             className="h-9 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"

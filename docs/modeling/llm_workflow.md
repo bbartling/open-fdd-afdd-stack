@@ -12,7 +12,7 @@ This page describes a **single upload** workflow for mechanical engineers: send 
 
 **Best practice:** Decide **which Open-FDD faults and rules** you will run *before* finalizing `polling`. The canonical prompt is **fault-first**: it tells the model to gather job context (faults, YAML, units, production vs bench, weather scope) or to stay conservative on polling until that context exists.
 
-> **Automated path available:** External OpenAI-compatible agents (for example Open‑Claw) can automate the same flow by calling `GET /data-model/export`, fetching platform documentation context from `GET /model-context/docs`, and then calling `PUT /data-model/import` with validated import JSON. The manual copy-paste workflow below always works too.
+> **Automated path available:** External OpenAI-compatible agents (for example Open‑Claw) can automate the same flow by calling `GET /data-model/export/import-template`, fetching platform documentation context from `GET /model-context/docs`, and then calling `PUT /data-model/import` with validated import JSON. The manual copy-paste workflow below always works too.
 
 > **Web-connected agents:** If your LLM can fetch HTTPS documentation, point it at the published **[Data modeling](https://bbartling.github.io/open-fdd-afdd-stack/modeling/)** hub and this page’s template anchor **[Copy/paste prompt template (recommended)](https://bbartling.github.io/open-fdd-afdd-stack/modeling/llm_workflow#copy-paste-prompt-template-recommended)** in addition to (or alongside) `GET /model-context/docs`, so instructions stay aligned with the live docs site.
 
@@ -24,7 +24,7 @@ This page describes a **single upload** workflow for mechanical engineers: send 
 
 1. **The canonical prompt** — Use **[AI-assisted data modeling](ai_assisted_tagging)** (section *LLM prompt and agent guidelines*), the inline template **below** on this page (“Copy/paste prompt template”), or the [Technical reference — LLM tagging workflow](../appendix/technical_reference#llm-tagging-workflow). You can copy from this page or keep an optional local mirror (e.g. `pdf/canonical_llm_prompt.txt`) for agents. The prompt must tell the LLM to return only `{"points": [...], "equipment": [...]}` with Brick types, rule_input slugs, equipment_name, feeds/fed_by, polling, and units (subject to the **pre-flight / job context** rules in the template).
 
-2. **The export JSON** — From **GET /data-model/export** (optionally `?site_id=YourSiteName`). Each row includes point fields (`point_id`, `bacnet_device_id`, `object_identifier`, `object_name`, `external_id`, `site_id`, `site_name`, `equipment_id`, `equipment_name`, `brick_type`, `rule_input`, `unit`, `polling`, …). Rows may also include **`engineering`** (and **`equipment_metadata`**) — a **per-equipment** mirror from the DB so the LLM sees rated/submittal context next to points. On **import**, write engineering updates under **`equipment[].engineering`**, not as ad-hoc point fields (see [Data model engineering](../howto/data_model_engineering) and `examples/223P_engineering/`). Unimported BACnet rows have `point_id: null` and null tagging fields until you import. For round-trip-safe AI import payloads, prefer **GET `/data-model/export/import-template`** instead of raw export replay.
+2. **The export JSON** — From **GET /data-model/export/import-template** (optionally `?site_id=YourSiteName`). This route returns an import-safe shape (`points` + `equipment`) and may include `template_hints`. If you use raw **GET /data-model/export** rows for context, transform to the import-safe shape before import.
 
 3. **Faults and rules for this job (strongly recommended)** — So the LLM can align **rule_input**, **Brick types**, **units**, and especially **polling** with what you will actually run in Open-FDD:
    - Paste **YAML** from your project’s rules (e.g. from `stack/rules/` or your own rule files). **This is the best input for correct polling decisions** — the model can see exactly which point inputs each rule uses.
@@ -369,13 +369,16 @@ To avoid that:
 
 4. **Pydantic in the repo** — The backend defines the import shape in **open_fdd/platform/api/data_model.py**: `DataModelImportBody`, `PointImportRow`, `EquipmentImportRow`. A script or pipeline can import those models and validate the LLM output (e.g. `DataModelImportBody.model_validate(json.loads(llm_output))`) before returning it to the human. That way the human only sees JSON that is known to parse on the backend.
 5. **Use the built-in validator script** — Run `python scripts/validate_data_model_import.py payload.json` before import. It prints failing paths like `equipment[0].unexpected_field` and exits non-zero on validation failure.
+6. **Common failure: `equipment[].site_name` extra field** — `EquipmentImportRow` does not accept `site_name` (it requires `site_id` when naming equipment by `equipment_name`). If you see:
+   `Request validation failed at equipment[0].site_name: Extra inputs are not permitted`
+   then remove `equipment[].site_name`, keep `equipment[].site_id`, and retry. The frontend importer now strips unsupported keys before PUT, but keeping prompts strict is still recommended.
 
 ---
 
 ## Mechanical engineer flow (short)
 
 1. **Create site** (and optionally equipment) via API or UI; note **site_id**.
-2. **Export** — GET /data-model/export?site_id=YourSiteName (or no filter for full dump).
+2. **Export** — GET /data-model/export/import-template?site_id=YourSiteName (or no filter for full dump).
 3. **Upload to LLM** — Paste (a) the [canonical template above](#copy-paste-prompt-template-recommended) (or your saved copy of the same text), (b) **fault/rule context** (which faults you run + **YAML snippets when possible**), then (c) export JSON. Optionally include the import JSON Schema so the LLM returns a valid payload.
    - **Fault-first:** Answer the pre-flight questions (or let the model ask them) before treating polling as final.
    - **UUID reminder:** Never replace `points[].site_id` with a human-readable site name; keep the UUID from the export (see **Validate before import** below).

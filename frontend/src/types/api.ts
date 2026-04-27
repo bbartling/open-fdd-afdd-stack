@@ -2,6 +2,10 @@
 export interface PlatformConfig {
   rule_interval_hours?: number;
   lookback_days?: number;
+  fdd_backfill_enabled?: boolean;
+  fdd_backfill_start?: string | null;
+  fdd_backfill_end?: string | null;
+  fdd_backfill_step_hours?: number;
   rules_dir?: string | null;
   brick_ttl_dir?: string | null;
   bacnet_enabled?: boolean;
@@ -16,8 +20,37 @@ export interface PlatformConfig {
   open_meteo_timezone?: string | null;
   open_meteo_days_back?: number;
   open_meteo_site_id?: string | null;
+  csv_enabled?: boolean;
+  csv_sources?: string | null;
+  csv_scrape_interval_min?: number;
+  csv_backfill_start?: string | null;
+  csv_backfill_end?: string | null;
+  csv_create_points?: boolean;
   graph_sync_interval_min?: number;
   [key: string]: unknown;
+}
+
+export interface DriverProfileStatus {
+  profile_path: string;
+  profile_exists: boolean;
+  drivers: Record<string, boolean>;
+  services: Record<string, boolean>;
+}
+
+export interface CsvUploadResponse {
+  ok: boolean;
+  validated: boolean;
+  preview: {
+    rows_total: number;
+    rows_with_valid_timestamp: number;
+    timestamp_column: string | null;
+    metric_columns: string[];
+    warnings?: string[];
+  };
+  ingest?: {
+    rows_inserted: number;
+    points_upserted: number;
+  };
 }
 
 export interface Site {
@@ -189,6 +222,7 @@ export interface DataModelExportRow {
 export interface DataModelImportBody {
   points: DataModelExportRow[];
   equipment?: unknown[];
+  template_hints?: Record<string, unknown> | null;
 }
 
 /** PUT /data-model/import response */

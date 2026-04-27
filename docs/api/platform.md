@@ -188,6 +188,25 @@ Default reset behavior is **DB-backed graph reset** (BACnet/orphans removed; Bri
 
 ---
 
+## Onboard ingestion (config-driven)
+
+Open-FDD supports read-only ingestion from the Onboard API using the `onboard-scraper` service and `run_onboard_scrape`.
+
+Configure via `PUT /config` (non-secret keys) plus env secret:
+
+- `onboard_enabled`
+- `onboard_api_base_url`
+- `onboard_building_ids` (CSV or JSON array string; IDs and/or names, e.g. `66,Office Building`)
+- `onboard_scrape_interval_min`
+- `onboard_backfill_start` (ISO timestamp floor for rolling catch-up)
+- `onboard_backfill_end` (optional cap; usually omitted)
+- `onboard_site_id_strategy` (`default` or `onboard-building-id`)
+- `onboard_create_points`
+
+Keep `OFDD_ONBOARD_API_KEY` in env (not persisted in graph). The driver uses a rolling catch-up strategy: each run ingests from checkpoint (or `onboard_backfill_start`) toward now in interval-sized batches, then advances checkpoint state.
+
+---
+
 ### GET /data-model/ttl
 
 Generate Brick TTL from current DB state. Returns Turtle (text/turtle).

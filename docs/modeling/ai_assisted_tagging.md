@@ -6,7 +6,7 @@ nav_order: 4
 
 # AI-assisted Brick tagging
 
-Open-FDD supports **AI-assisted data modeling**: use **GET /data-model/export** to dump BACnet discovery and existing points as JSON, then have an **LLM or human** add **Brick point classes** (`brick_type`), **Brick equipment classes** (`equipment_type` — best guess the operator confirms), rule inputs, equipment relationships, and which points to poll — and send the result to **PUT /data-model/import**. The platform stays the single source of truth; tagging is the step where raw BACnet objects become a curated, rule-ready dataset.
+Open-FDD supports **AI-assisted data modeling**: use **GET /data-model/export/import-template** to get an import-safe JSON payload, then have an **LLM or human** add **Brick point classes** (`brick_type`), **Brick equipment classes** (`equipment_type` — best guess the operator confirms), rule inputs, equipment relationships, and which points to poll — and send the result to **PUT /data-model/import**. The platform stays the single source of truth; tagging is the step where raw BACnet objects become a curated, rule-ready dataset.
 
 This workflow is intended for **mechanical engineers and building operators** who need the data model tagged so that FDD rules in `stack/rules/` have the correct inputs and only the right points are logged long-term.
 
@@ -18,7 +18,7 @@ This workflow is intended for **mechanical engineers and building operators** wh
 
 2. **Sites and equipment** — Create the building/site and equipment (AHUs, VAVs, zones) via **POST /sites** and **POST /equipment**. Keep `site_id` UUIDs from export when present. For equipment assignment on import, you can use `equipment_id` UUIDs or `equipment_name` (resolved/created under `site_id`).
 
-3. **Export** — **GET /data-model/export** (or `?bacnet_only=true` for discovery-only). Returns a single JSON array: BACnet discovery rows plus all DB points. Unimported BACnet rows have `point_id: null`, `polling: false`, and null `equipment_id`/`brick_type`/`rule_input`. **`site_id` / `site_name` are pre-filled** when you pass **`?site_id=`** (UUID or site name), when the **Data model** UI has a site selected in the top bar, or when the database has **exactly one site** — so LLMs can assign `equipment_name` safely. With **multiple sites** and no `site_id` filter, those fields stay null until you scope the export.
+3. **Export** — **GET /data-model/export/import-template** (or `?bacnet_only=true` for discovery-only). Returns an import-safe body with `points` and `equipment` keys, plus optional `template_hints`. This route strips export-only fields and is safe to submit directly to **PUT /data-model/import** after edits.
 
 4. **Tag** — Send the export JSON to an LLM or edit manually. For each point set:
    - **site_id**, **external_id** (time-series key)
@@ -43,7 +43,7 @@ This workflow is intended for **mechanical engineers and building operators** wh
 - **No other top-level keys:** The API model uses **`extra="forbid"`** — unknown keys such as `sites` or `relationships` produce **422 Unprocessable Entity** (they are not silently ignored).
 - **Nested rows are strict too:** Unknown keys inside `points[]` and `equipment[]` are also rejected (`extra="forbid"` on nested row models). Keep each row to documented fields only.
 
-**diy-bacnet ready:** The list of points to poll is **GET /data-model/export** filtered to rows where **polling === true**; each has `bacnet_device_id` and `object_identifier`.
+**diy-bacnet ready:** The list of points to poll is in the `points[]` rows from **GET /data-model/export/import-template** where **polling === true**; each has `bacnet_device_id` and `object_identifier`.
 
 ---
 
@@ -53,7 +53,7 @@ This workflow is intended for **mechanical engineers and building operators** wh
 
 **Canonical prompt text:** The **full** copy-paste system prompt (points + equipment rules, strict JSON output, **fault-first pre-flight** for polling) is on the docs site under **[LLM workflow — Copy/paste prompt template](llm_workflow#copy-paste-prompt-template-recommended)**. Published hub: **[Data modeling](https://bbartling.github.io/open-fdd-afdd-stack/modeling/)** (same content as the repo after Pages build). You can save the same text to a local file (e.g. `pdf/canonical_llm_prompt.txt`) for agents; keep it in sync when you change instructions. The running API does **not** auto-inject this into chat UIs; load it yourself or point agents at the published section. For **HTTP model context**, use **`GET /model-context/docs`**, which serves **`pdf/open-fdd-docs.txt`** (or **`OFDD_DOCS_PATH`**)—regenerate that bundle after doc changes so agents see updates. Agents that can **fetch the web** may also load the [modeling hub](https://bbartling.github.io/open-fdd-afdd-stack/modeling/) or the [template anchor](https://bbartling.github.io/open-fdd-afdd-stack/modeling/llm_workflow#copy-paste-prompt-template-recommended) directly.
 
-**What the prompt must cover:** It should be generic for **any site** (single building, campus, or tenant). The only input that changes per run is the export JSON from **GET /data-model/export** (optionally `?site_id=YourSiteName`). The LLM must preserve all fields, add **brick_type**, **rule_input**, **unit** (when known), and **polling**, and use equipment by name and **site_id** from the export. **Best practice:** the operator should state **which faults/rules** will run and supply **YAML (or snippets) where possible** before treating **polling** as final; the canonical prompt enforces that as **pre-flight / job context** or a **conservative draft**.
+**What the prompt must cover:** It should be generic for **any site** (single building, campus, or tenant). The only input that changes per run is the export JSON from **GET /data-model/export/import-template** (optionally `?site_id=YourSiteName`). The LLM must preserve all fields, add **brick_type**, **rule_input**, **unit** (when known), and **polling**, and use equipment by name and **site_id** from the export. **Best practice:** the operator should state **which faults/rules** will run and supply **YAML (or snippets) where possible** before treating **polling** as final; the canonical prompt enforces that as **pre-flight / job context** or a **conservative draft**.
 
 > **Ontology / column_map resolvers:** On the full stack, **`fdd-loop`** still resolves rule inputs from the **Brick** model in **`data_model.ttl`** by default (**`BrickTtlColumnMapResolver`** in **`openfdd_stack.platform.brick_ttl_resolver`**). Tagging with **`brick_type`** / **`rule_input`** is what keeps rules aligned with timeseries columns—you do not add a separate manifest to the LLM import JSON for that path. Optional **`ManifestColumnMapResolver`** / multi-ontology manifests are for library or custom pipelines; see the callout on [LLM workflow](llm_workflow).
 
@@ -85,11 +85,11 @@ See [LLM workflow (export + rules + validate → import)](llm_workflow) for the 
 
 ## External agent integration (Open‑Claw or any OpenAI-compatible LLM)
 
-**Where it runs:** Outside Open‑FDD (in your external LLM/Open‑Claw environment). Open‑FDD stays the single source of truth; your agent orchestrates `GET /data-model/export` → LLM tagging → `PUT /data-model/import`.
+**Where it runs:** Outside Open‑FDD (in your external LLM/Open‑Claw environment). Open‑FDD stays the single source of truth; your agent orchestrates `GET /data-model/export/import-template` → LLM tagging → `PUT /data-model/import`.
 
-**How it’s invoked:** Your external agent calls `GET /data-model/export` (optionally with a site filter), tags the export via Open‑Claw (OpenAI-compatible) using the canonical prompt, then imports validated JSON with `PUT /data-model/import`. If validation fails, include the error text and retry (prompt chaining).
+**How it’s invoked:** Your external agent calls `GET /data-model/export/import-template` (optionally with a site filter), tags the export via Open‑Claw (OpenAI-compatible) using the canonical prompt, then imports validated JSON with `PUT /data-model/import`. If validation fails, include the error text and retry (prompt chaining).
 
-**What the agent does:** It uses the same API endpoints as the manual process: `GET /data-model/export` (optionally filtered by site) → LLM tagging using the canonical prompt → validate that the returned JSON matches Open‑FDD’s import schema → `PUT /data-model/import` (or return JSON for the engineer to import).
+**What the agent does:** It uses the same API endpoints as the manual process: `GET /data-model/export/import-template` (optionally filtered by site) → LLM tagging using the canonical prompt → validate that the returned JSON matches Open‑FDD’s import schema → `PUT /data-model/import` (or return JSON for the engineer to import).
 
 ---
 
@@ -97,7 +97,7 @@ See [LLM workflow (export + rules + validate → import)](llm_workflow) for the 
 
 The agent is typically **not** a long-lived process; your external loop exports the model, tags it, validates the output, and retries when needed:
 
-1. **Export** — Call `GET /data-model/export` (optionally filtered by site) and send the export JSON to your agent.
+1. **Export** — Call `GET /data-model/export/import-template` (optionally filtered by site) and send the export JSON to your agent.
 2. **System prompt** — Use the full tagging instructions (this page + Technical reference, or your local `pdf/canonical_llm_prompt.txt` if you maintain one) as the Open‑Claw/OpenAI-compatible **system** prompt.
 3. **User message** — Send the export JSON as the user message. Optionally prepend any engineer description of feeds/fed_by topology and assumptions so the LLM can choose correct Brick types and relationships.
 4. **LLM call** — Call your Open‑Claw/OpenAI-compatible LLM once (for typical payloads). For very large exports, your agent may split into chunks and merge results. Request JSON output (for example with `response_format={"type": "json_object"}`).
@@ -113,7 +113,7 @@ So the agent uses **retry** with **prompt chaining**: keep the same export/rules
 
 ## Automating tagging (external agents)
 
-1. Call `GET /data-model/export` to get the export JSON (optionally with `?site_id=...`).
+1. Call `GET /data-model/export/import-template` to get the export JSON (optionally with `?site_id=...`).
 2. Fetch Open‑FDD documentation context for the LLM: `GET /model-context/docs` (use `query=...` to retrieve relevant sections).
 3. Prompt/tag with Open‑Claw (OpenAI-compatible) to produce import JSON that matches the Open‑FDD schema.
 4. Validate and import:
@@ -143,7 +143,7 @@ it means a **UUID field** holds a human-readable value (often the site name was 
 
 Human fix (pick the path that matches your row shape):
 
-1. **Preferred:** Replace the bad value with the **real site UUID** from `GET /data-model/export` or `GET /sites` (same site the row belongs to). This is always safe for **updates** (`point_id` set) and for **creates**, and it keeps **name-based** `equipment[]` rows valid — those rows still **require** a proper `site_id` UUID alongside `equipment_name` / `feeds` / `fed_by`.
+1. **Preferred:** Replace the bad value with the **real site UUID** from `GET /data-model/export/import-template` or `GET /sites` (same site the row belongs to). This is always safe for **updates** (`point_id` set) and for **creates**, and it keeps **name-based** `equipment[]` rows valid — those rows still **require** a proper `site_id` UUID alongside `equipment_name` / `feeds` / `fed_by`.
 2. **Creates only (`point_id` omitted):** If the backend should resolve the site by name, you may set `site_id` to `null` (or remove the key) **and** set `site_name` to an existing site name (see import logic in the API). Do **not** use this as a blanket fix for every row: any row that uses **equipment by name** must keep a valid `site_id` UUID.
 3. **Bad equipment or point UUIDs:** If the error is about `point_id` or `equipment_id`, remove or replace only those fields with IDs from your DB/export — don’t strip `site_id` from unrelated rows.
 

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from openfdd_stack.platform.config import get_config_overlay, set_config_overlay
 from openfdd_stack.platform.default_config import DEFAULT_PLATFORM_CONFIG
+from openfdd_stack.platform.driver_profile import driver_services_mapping, load_driver_profile
 from openfdd_stack.platform.graph_model import (
     get_config_from_graph,
     set_config_in_graph,
@@ -21,6 +24,10 @@ router = APIRouter(prefix="/config", tags=["config"])
 CONFIG_KEYS = {
     "rule_interval_hours",
     "lookback_days",
+    "fdd_backfill_enabled",
+    "fdd_backfill_start",
+    "fdd_backfill_end",
+    "fdd_backfill_step_hours",
     "rules_dir",
     "brick_ttl_dir",
     "bacnet_enabled",
@@ -35,6 +42,20 @@ CONFIG_KEYS = {
     "open_meteo_timezone",
     "open_meteo_days_back",
     "open_meteo_site_id",
+    "onboard_enabled",
+    "onboard_api_base_url",
+    "onboard_building_ids",
+    "onboard_scrape_interval_min",
+    "onboard_backfill_start",
+    "onboard_backfill_end",
+    "onboard_site_id_strategy",
+    "onboard_create_points",
+    "csv_enabled",
+    "csv_sources",
+    "csv_scrape_interval_min",
+    "csv_backfill_start",
+    "csv_backfill_end",
+    "csv_create_points",
     "graph_sync_interval_min",
 }
 
@@ -46,6 +67,18 @@ class ConfigBody(BaseModel):
         None, description="FDD rule run interval (hours)"
     )
     lookback_days: int | None = Field(None, description="Days of data per FDD run")
+    fdd_backfill_enabled: bool | None = Field(
+        None, description="Enable one-pass FDD historical backfill run"
+    )
+    fdd_backfill_start: datetime | None = Field(
+        None, description="Historical FDD backfill start timestamp (ISO-8601)"
+    )
+    fdd_backfill_end: datetime | None = Field(
+        None, description="Historical FDD backfill end timestamp (ISO-8601, optional)"
+    )
+    fdd_backfill_step_hours: int | None = Field(
+        None, description="Historical FDD backfill window size (hours)"
+    )
     rules_dir: str | None = Field(None, description="Path to FDD rules YAML")
     brick_ttl_dir: str | None = Field(None, description="Directory for Brick TTL")
     bacnet_enabled: bool | None = Field(None, description="Enable BACnet scraper")
@@ -71,6 +104,48 @@ class ConfigBody(BaseModel):
         None, description="Days of weather to fetch"
     )
     open_meteo_site_id: str | None = Field(None, description="Site for weather points")
+    onboard_enabled: bool | None = Field(None, description="Enable Onboard API ingestion")
+    onboard_api_base_url: str | None = Field(
+        None, description="Onboard API base URL"
+    )
+    onboard_building_ids: str | None = Field(
+        None,
+        description="Building selectors as CSV (66,67), bracketed list ([66,67]), or JSON array of IDs/names (e.g. [\"Office Building\"])",
+    )
+    onboard_scrape_interval_min: int | None = Field(
+        None, description="Onboard incremental scrape interval (minutes)"
+    )
+    onboard_backfill_start: datetime | None = Field(
+        None, description="Onboard backfill window start timestamp (ISO-8601)"
+    )
+    onboard_backfill_end: datetime | None = Field(
+        None, description="Onboard backfill window end timestamp (ISO-8601)"
+    )
+    onboard_site_id_strategy: Literal["default", "onboard-building-id"] | None = Field(
+        None,
+        description='Site mapping strategy for Onboard buildings ("default" or "onboard-building-id")',
+    )
+    onboard_create_points: bool | None = Field(
+        None,
+        description="When true, ingest metadata can auto-create points before timeseries writes",
+    )
+    csv_enabled: bool | None = Field(None, description="Enable CSV ingestion")
+    csv_sources: str | None = Field(
+        None,
+        description='JSON array of CSV sources: [{"path":"...","site_id":"..."}]',
+    )
+    csv_scrape_interval_min: int | None = Field(
+        None, description="CSV scraper loop interval (minutes)"
+    )
+    csv_backfill_start: datetime | None = Field(
+        None, description="CSV backfill start timestamp (ISO-8601)"
+    )
+    csv_backfill_end: datetime | None = Field(
+        None, description="CSV backfill end timestamp (ISO-8601)"
+    )
+    csv_create_points: bool | None = Field(
+        None, description="When true, CSV ingest can auto-create points"
+    )
     graph_sync_interval_min: int | None = Field(
         None, description="Graph sync to TTL (minutes)"
     )
@@ -110,6 +185,28 @@ def get_config():
     if from_graph:
         return _normalize_config_for_display(from_graph)
     return _normalize_config_for_display(dict(DEFAULT_PLATFORM_CONFIG))
+
+
+class DriverProfileStatus(BaseModel):
+    profile_path: str
+    profile_exists: bool
+    drivers: dict[str, bool]
+    services: dict[str, bool]
+
+
+@router.get(
+    "/driver-profile",
+    summary="Get driver bootstrap profile",
+    response_model=DriverProfileStatus,
+)
+def get_driver_profile():
+    drivers, path, exists = load_driver_profile()
+    return {
+        "profile_path": str(path),
+        "profile_exists": exists,
+        "drivers": drivers,
+        "services": driver_services_mapping(drivers),
+    }
 
 
 @router.put("", summary="Set platform config (RDF + TTL)")

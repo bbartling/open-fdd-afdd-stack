@@ -43,12 +43,16 @@ class PlatformSettings(BaseSettings):
     )
     app_title: str = "Open-FDD API"
     # Bump with root pyproject.toml [project].version and frontend/package.json "version".
-    app_version: str = "2.0.14"
+    app_version: str = "2.0.16"
     debug: bool = False
 
     # FDD loop
     rule_interval_hours: float = 3.0  # fractional OK for testing (e.g. 0.1 = 6 min)
     lookback_days: int = 3
+    fdd_backfill_enabled: bool = False
+    fdd_backfill_start: Optional[str] = None
+    fdd_backfill_end: Optional[str] = None
+    fdd_backfill_step_hours: int = 3
     fdd_trigger_file: Optional[str] = (
         "config/.run_fdd_now"  # touch to run now + reset timer
     )
@@ -61,10 +65,14 @@ class PlatformSettings(BaseSettings):
     # Driver intervals
     bacnet_scrape_interval_min: int = 5
     open_meteo_interval_hours: int = 24
+    onboard_scrape_interval_min: int = 180
+    csv_scrape_interval_min: int = 180
 
     # Driver on/off (like Volttron agent enable/disable)
     bacnet_scrape_enabled: bool = True
     open_meteo_enabled: bool = True
+    onboard_enabled: bool = False
+    csv_enabled: bool = False
 
     # Open-Meteo: geo and fetch window (used when open_meteo_enabled)
     open_meteo_latitude: float = 41.88
@@ -72,6 +80,21 @@ class PlatformSettings(BaseSettings):
     open_meteo_timezone: str = "America/Chicago"
     open_meteo_days_back: int = 3
     open_meteo_site_id: str = "default"  # site name or UUID to store weather under
+
+    # Onboard API ingestion (read-only metadata + timeseries)
+    onboard_api_base_url: str = "https://api.onboarddata.io"
+    onboard_api_key: Optional[str] = None
+    onboard_building_ids: str = ""
+    onboard_backfill_start: Optional[str] = None
+    onboard_backfill_end: Optional[str] = None
+    onboard_site_id_strategy: str = "onboard-building-id"
+    onboard_create_points: bool = True
+
+    # CSV ingestion (local files -> points/timeseries)
+    csv_sources: str = ""
+    csv_backfill_start: Optional[str] = None
+    csv_backfill_end: Optional[str] = None
+    csv_create_points: bool = True
 
     # Graph model: sync in-memory graph to data_model.ttl every N minutes
     graph_sync_interval_min: int = 5

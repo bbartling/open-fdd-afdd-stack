@@ -5,7 +5,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Save, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { JsonPrettyPanel } from "@/components/ui/json-pretty-panel";
-import { getConfig, putConfig } from "@/lib/crud-api";
+import { SitesSetupCard } from "@/components/site/SitesSetupCard";
+import { getConfig, getDriverProfileStatus, putConfig } from "@/lib/crud-api";
 import type { PlatformConfig } from "@/types/api";
 
 const inputClass =
@@ -53,6 +54,30 @@ function ConfigField({
   );
 }
 
+function ConfigTextArea({
+  label,
+  value,
+  onChange,
+  rows = 4,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+}) {
+  return (
+    <div>
+      <label className={labelClass}>{label}</label>
+      <textarea
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+      />
+    </div>
+  );
+}
+
 function ConfigSwitch({
   label,
   checked,
@@ -95,6 +120,14 @@ function ConfigSummary({ config }: { config: PlatformConfig }) {
           <dd className="font-mono text-foreground">{formatConfigValue(config.rule_interval_hours)}</dd>
           <dt className="text-muted-foreground">Lookback (days)</dt>
           <dd className="font-mono text-foreground">{formatConfigValue(config.lookback_days)}</dd>
+          <dt className="text-muted-foreground">Backfill enabled</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.fdd_backfill_enabled)}</dd>
+          <dt className="text-muted-foreground">Backfill start</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.fdd_backfill_start)}</dd>
+          <dt className="text-muted-foreground">Backfill end</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.fdd_backfill_end)}</dd>
+          <dt className="text-muted-foreground">Backfill step (hours)</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.fdd_backfill_step_hours)}</dd>
           <dt className="text-muted-foreground">Rules dir</dt>
           <dd className="truncate font-mono text-foreground" title={String(config.rules_dir ?? "")}>{formatConfigValue(config.rules_dir)}</dd>
           <dt className="text-muted-foreground">Brick TTL dir</dt>
@@ -128,6 +161,20 @@ function ConfigSummary({ config }: { config: PlatformConfig }) {
           <dt className="text-muted-foreground">Site ID</dt>
           <dd className="font-mono text-foreground">{formatConfigValue(config.open_meteo_site_id)}</dd>
 
+          <span className="col-span-full mt-2 border-b border-border/60 pb-1 font-medium text-muted-foreground">CSV</span>
+          <dt className="text-muted-foreground">Enabled</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.csv_enabled)}</dd>
+          <dt className="text-muted-foreground">Scrape interval (min)</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.csv_scrape_interval_min)}</dd>
+          <dt className="text-muted-foreground">Backfill start</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.csv_backfill_start)}</dd>
+          <dt className="text-muted-foreground">Backfill end</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.csv_backfill_end)}</dd>
+          <dt className="text-muted-foreground">Create points</dt>
+          <dd className="font-mono text-foreground">{formatConfigValue(config.csv_create_points)}</dd>
+          <dt className="text-muted-foreground">Sources JSON</dt>
+          <dd className="truncate font-mono text-foreground" title={String(config.csv_sources ?? "")}>{formatConfigValue(config.csv_sources)}</dd>
+
           <span className="col-span-full mt-2 border-b border-border/60 pb-1 font-medium text-muted-foreground">Graph</span>
           <dt className="text-muted-foreground">Sync interval (min)</dt>
           <dd className="font-mono text-foreground">{formatConfigValue(config.graph_sync_interval_min)}</dd>
@@ -138,6 +185,38 @@ function ConfigSummary({ config }: { config: PlatformConfig }) {
             <JsonPrettyPanel value={config} maxHeightClass="max-h-72" defaultExpandDepth={1} />
           </div>
         </details>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DriverBootstrapSummary() {
+  const { data } = useQuery({
+    queryKey: ["driver-profile"],
+    queryFn: getDriverProfileStatus,
+  });
+  if (!data) return null;
+  const rows = [
+    ["BACnet", data.drivers.bacnet],
+    ["Onboard", data.drivers.onboard],
+    ["CSV", data.drivers.csv],
+    ["Weather", data.drivers.weather],
+    ["FDD", data.drivers.fdd],
+  ] as const;
+  return (
+    <Card className="mb-6 border-dashed">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Bootstrap driver profile</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1 text-sm">
+        {rows.map(([label, on]) => (
+          <div key={label} className="flex items-center justify-between">
+            <span className="text-muted-foreground">{label}</span>
+            <span className={on ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+              {on ? "Enabled" : "Not bootstrapped"}
+            </span>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
@@ -202,6 +281,10 @@ export function ConfigPage() {
         Platform settings stored in the knowledge graph. Changes take effect on the next FDD run or scraper cycle.
       </p>
 
+      <SitesSetupCard stepLabel="Step 1" className="mb-6" />
+
+      <DriverBootstrapSummary />
+
       {/* Current settings summary (read-only, grouped) */}
       <ConfigSummary config={config} />
 
@@ -239,6 +322,32 @@ export function ConfigPage() {
               value={form.brick_ttl_dir ?? ""}
               onChange={(v) => update("brick_ttl_dir", String(v))}
               placeholder="config"
+            />
+            <div className="sm:col-span-2">
+              <ConfigSwitch
+                label="Enable FDD historical backfill"
+                checked={form.fdd_backfill_enabled ?? false}
+                onChange={(v) => update("fdd_backfill_enabled", v)}
+              />
+            </div>
+            <ConfigField
+              label="FDD backfill start (ISO-8601)"
+              value={String(form.fdd_backfill_start ?? "")}
+              onChange={(v) => update("fdd_backfill_start", String(v).trim() || null)}
+              placeholder="2026-04-01T00:00:00Z"
+            />
+            <ConfigField
+              label="FDD backfill end (ISO-8601, optional)"
+              value={String(form.fdd_backfill_end ?? "")}
+              onChange={(v) => update("fdd_backfill_end", String(v).trim() || null)}
+              placeholder="2026-04-02T00:00:00Z"
+            />
+            <ConfigField
+              label="FDD backfill step (hours)"
+              type="number"
+              value={form.fdd_backfill_step_hours ?? 3}
+              onChange={(v) => update("fdd_backfill_step_hours", Number(v))}
+              min={1}
             />
           </CardContent>
         </Card>
@@ -322,6 +431,57 @@ export function ConfigPage() {
               onChange={(v) => update("open_meteo_site_id", String(v))}
               placeholder="default"
             />
+          </CardContent>
+        </Card>
+
+        {/* Graph */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">CSV ingest</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <p className="sm:col-span-2 text-sm text-muted-foreground">
+              These settings control the background CSV scraper service (file polling and scheduled ingest).
+            </p>
+            <div className="sm:col-span-2">
+              <ConfigSwitch
+                label="CSV scraper enabled (background file polling)"
+                checked={form.csv_enabled ?? false}
+                onChange={(v) => update("csv_enabled", v)}
+              />
+            </div>
+            <ConfigField
+              label="CSV scraper interval (min)"
+              type="number"
+              value={form.csv_scrape_interval_min ?? 180}
+              onChange={(v) => update("csv_scrape_interval_min", Number(v))}
+              min={1}
+            />
+            <ConfigSwitch
+              label="Auto-create CSV points"
+              checked={form.csv_create_points ?? true}
+              onChange={(v) => update("csv_create_points", v)}
+            />
+            <ConfigField
+              label="CSV backfill start (ISO-8601)"
+              value={String(form.csv_backfill_start ?? "")}
+              onChange={(v) => update("csv_backfill_start", String(v).trim() || null)}
+              placeholder="2026-04-01T00:00:00Z"
+            />
+            <ConfigField
+              label="CSV backfill end (ISO-8601, optional)"
+              value={String(form.csv_backfill_end ?? "")}
+              onChange={(v) => update("csv_backfill_end", String(v).trim() || null)}
+              placeholder="2026-04-02T00:00:00Z"
+            />
+            <div className="sm:col-span-2">
+              <ConfigTextArea
+                label="CSV sources JSON"
+                value={String(form.csv_sources ?? "")}
+                onChange={(v) => update("csv_sources", v)}
+                rows={5}
+              />
+            </div>
           </CardContent>
         </Card>
 

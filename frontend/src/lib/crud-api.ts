@@ -15,6 +15,7 @@ import type {
   Point,
   PointPatchBody,
   Site,
+  DriverProfileStatus,
 } from "@/types/api";
 
 export interface SiteCreate {
@@ -72,6 +73,16 @@ export function putConfig(body: PlatformConfig) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+}
+
+export function getDriverProfileStatus() {
+  return apiFetch<DriverProfileStatus>("/config/driver-profile");
+}
+
+export function triggerRunFdd() {
+  return apiFetch<{ status: string; path: string }>("/run-fdd", {
+    method: "POST",
   });
 }
 

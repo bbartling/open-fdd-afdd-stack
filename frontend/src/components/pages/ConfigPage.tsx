@@ -441,8 +441,7 @@ export function ConfigPage() {
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <p className="sm:col-span-2 text-sm text-muted-foreground">
-              These settings control the background CSV scraper service (file polling). Manual drag-and-drop CSV upload from the
-              CSV Import page works through the API even when scraper settings remain disabled.
+              These settings control the background CSV scraper service (file polling and scheduled ingest).
             </p>
             <div className="sm:col-span-2">
               <ConfigSwitch

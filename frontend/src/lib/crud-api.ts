@@ -16,7 +16,6 @@ import type {
   PointPatchBody,
   Site,
   DriverProfileStatus,
-  CsvUploadResponse,
 } from "@/types/api";
 
 export interface SiteCreate {
@@ -79,13 +78,6 @@ export function putConfig(body: PlatformConfig) {
 
 export function getDriverProfileStatus() {
   return apiFetch<DriverProfileStatus>("/config/driver-profile");
-}
-
-export function uploadCsvFile(body: FormData) {
-  return apiFetch<CsvUploadResponse>("/csv/upload", {
-    method: "POST",
-    body,
-  });
 }
 
 export function triggerRunFdd() {

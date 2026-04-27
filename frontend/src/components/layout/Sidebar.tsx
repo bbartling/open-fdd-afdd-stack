@@ -16,7 +16,6 @@ import {
   ChevronUp,
   LogOut,
   Radio,
-  UploadCloud,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useCapabilities, useHealth } from "@/hooks/use-fdd-status";
@@ -28,7 +27,6 @@ import { timeAgo } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/config", label: "OpenFDD Config", icon: Settings, end: false },
-  { to: "/csv-import", label: "CSV Import", icon: UploadCloud, end: false },
   { to: "/bacnet-tools", label: "BACnet tools", icon: Radio, end: false },
   { to: "/data-model", label: "Data Model BRICK", icon: Database, end: false },
   { to: "/energy-engineering", label: "Energy Engineering", icon: Zap, end: false },
